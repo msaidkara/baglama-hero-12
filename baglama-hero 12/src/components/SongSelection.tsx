@@ -2,7 +2,6 @@ import styled from 'styled-components';
 import type { Song } from '../types';
 import { AL_YAZMALIM } from '../songs/alYazmalim';
 import { MAVILIM } from '../songs/mavilim';
-import { UZUN_INCE } from '../songs/uzunInce';
 
 const Container = styled.div`
   display: flex;
@@ -84,13 +83,6 @@ export function SongSelection({ onSelect }: SongSelectionProps) {
                     <div>
                         <SongTitle>{MAVILIM.title}</SongTitle>
                         <SongInfo>BPM: {MAVILIM.bpm}</SongInfo>
-                    </div>
-                    <div>▶</div>
-                </SongCard>
-                <SongCard onClick={() => onSelect(UZUN_INCE)}>
-                    <div>
-                        <SongTitle>{UZUN_INCE.title}</SongTitle>
-                        <SongInfo>BPM: {UZUN_INCE.bpm}</SongInfo>
                     </div>
                     <div>▶</div>
                 </SongCard>

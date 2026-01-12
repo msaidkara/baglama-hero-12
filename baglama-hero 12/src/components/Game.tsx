@@ -57,20 +57,23 @@ const ScoreDisplay = styled.div`
   text-shadow: 0 0 10px rgba(97, 218, 251, 0.5);
 `;
 
-const Button = styled.button`
+const Button = styled.button<{ secondary?: boolean }>`
   padding: 15px 40px;
   font-size: 1.4rem;
-  background: linear-gradient(90deg, #61dafb 0%, #21a1f1 100%);
-  border: none;
+  background: ${props => props.secondary ? 'rgba(255,255,255,0.1)' : 'linear-gradient(90deg, #61dafb 0%, #21a1f1 100%)'};
+  border: ${props => props.secondary ? '1px solid rgba(255,255,255,0.3)' : 'none'};
   border-radius: 30px;
   cursor: pointer;
   color: white;
   font-weight: bold;
-  box-shadow: 0 4px 15px rgba(33, 161, 241, 0.4);
+  box-shadow: ${props => props.secondary ? 'none' : '0 4px 15px rgba(33, 161, 241, 0.4)'};
   transition: transform 0.2s;
 
   &:active {
     transform: scale(0.95);
+  }
+  &:hover {
+      background: ${props => props.secondary ? 'rgba(255,255,255,0.2)' : 'linear-gradient(90deg, #61dafb 0%, #21a1f1 100%)'};
   }
 `;
 
@@ -136,6 +139,7 @@ interface GameProps {
 export function Game({ song, onExit }: GameProps) {
   const [gameState, setGameState] = useState<'IDLE' | 'PLAYING' | 'FINISHED'>('IDLE');
   const [isListening, setIsListening] = useState(false);
+  const [isListenOnlyMode, setIsListenOnlyMode] = useState(false);
   const [simFreq, setSimFreq] = useState<number | null>(null);
   const [showDebug, setShowDebug] = useState(false);
   const [targetBpm, setTargetBpm] = useState(song.bpm);
@@ -175,7 +179,10 @@ export function Game({ song, onExit }: GameProps) {
   useAudioPlayer(song, isPlaying, currentTime, speed, metronomeEnabled);
   
   // Audio Input
-  const pitch = useAudioInput(isListening || isPlaying, simFreq);
+  // If ListenOnly Mode is active, we do NOT want to listen to microphone.
+  // However, `useAudioInput` hook handles mic stream.
+  // We pass `isListening && !isListenOnlyMode`.
+  const pitch = useAudioInput(isListening && !isListenOnlyMode, simFreq);
 
   // Scoring
   const [score, setScore] = useState(0);
@@ -195,6 +202,8 @@ export function Game({ song, onExit }: GameProps) {
   }, [currentTime, gameState, song]);
 
   const updateTeacher = () => {
+      if (isListenOnlyMode) return; // No teacher in Listen Mode
+
       const history = recentHistoryRef.current;
       if (history.length < 5) return;
 
@@ -232,6 +241,9 @@ export function Game({ song, onExit }: GameProps) {
   // Gameplay Logic using PerformanceEvaluator
   useEffect(() => {
     if (gameState !== 'PLAYING') return;
+
+    // IF Listen Only Mode, we don't score or miss.
+    if (isListenOnlyMode) return;
 
     const HIT_WINDOW = 200; // Legacy window for Timeout check
     const EVAL_WINDOW = 500; // Broad window to start evaluating
@@ -313,11 +325,23 @@ export function Game({ song, onExit }: GameProps) {
         updateTeacher();
     }
 
-  }, [currentTime, pitch, gameState, noteStatuses, song]); 
+  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode]);
 
   const startGame = () => {
     setGameState('PLAYING');
     setIsListening(true);
+    setIsListenOnlyMode(false);
+    recentHistoryRef.current = [];
+    setTeacherState({ message: null, mood: 'neutral' });
+  };
+
+  const startListenMode = () => {
+    setGameState('PLAYING');
+    setIsListening(true); // "Listening" in context of Game Loop running, but...
+    // Actually, useAudioInput needs to know if it should use Mic.
+    setIsListenOnlyMode(true);
+    // Logic: `useAudioInput(isListening && !isListenOnlyMode)` -> `true && false` -> `false` (No Mic).
+
     recentHistoryRef.current = [];
     setTeacherState({ message: null, mood: 'neutral' });
   };
@@ -325,6 +349,7 @@ export function Game({ song, onExit }: GameProps) {
   const stopGame = () => {
     setGameState('IDLE');
     setIsListening(false);
+    setIsListenOnlyMode(false);
     setNoteStatuses(new Map());
     setScore(0);
     setStats({ hits: 0, misses: 0, early: 0, late: 0, perfect: 0, missedNotesMap: new Map() });
@@ -342,7 +367,9 @@ export function Game({ song, onExit }: GameProps) {
       <TopBar>
          <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
              <IconButton onClick={onExit}>← Menu</IconButton>
-             <div style={{fontWeight: 'bold'}}>{song.title}</div>
+             <div style={{fontWeight: 'bold'}}>
+                 {song.title} {isListenOnlyMode && <span style={{color: '#61dafb', fontSize: '0.8rem'}}>(Listen Mode)</span>}
+             </div>
          </div>
          
          <SpeedControl>
@@ -370,7 +397,7 @@ export function Game({ song, onExit }: GameProps) {
 
          <div style={{flex: 1}} />
 
-         <ScoreDisplay>{score}</ScoreDisplay>
+         {!isListenOnlyMode && <ScoreDisplay>{score}</ScoreDisplay>}
          
          <div style={{width: '20px'}} />
          
@@ -407,7 +434,10 @@ export function Game({ song, onExit }: GameProps) {
             {/* Start Button Overlay */}
             {!isPlaying && gameState !== 'FINISHED' && (
                 <div style={{position: 'absolute', zIndex: 20, display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center'}}>
-                    <Button onClick={startGame}>Start Song</Button>
+                    <div style={{display: 'flex', gap: '20px'}}>
+                        <Button onClick={startGame}>Start Song</Button>
+                        <Button secondary onClick={startListenMode}>Dinle</Button>
+                    </div>
                     <div style={{background: 'rgba(0,0,0,0.5)', padding: '10px', borderRadius: '10px', fontSize: '0.9rem'}}>
                         Tip: Use headphones for best results
                     </div>
@@ -439,7 +469,9 @@ export function Game({ song, onExit }: GameProps) {
         {/* Bottom Status Bar */}
         <div style={{height: '60px', width: '100%', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
             <PitchDisplay>
-            {pitch ? (
+            {isListenOnlyMode ? (
+                 <span style={{opacity: 0.7, fontStyle: 'italic'}}>Listen Mode Active - Audio Only</span>
+            ) : pitch ? (
                 <span>
                     {toSolfege(pitch.noteName)}{pitch.isQuarterTone ? '+' : ''}
                     <span style={{fontSize: '0.8rem', color: '#666', marginLeft: '5px'}}>
