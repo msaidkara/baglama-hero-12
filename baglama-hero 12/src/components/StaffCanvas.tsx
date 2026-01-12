@@ -35,9 +35,10 @@ const PlayLine = styled.div`
 
 interface StaffCanvasProps {
   song: Song;
-  currentTime: number; // in ms
+  currentTime: number; // in ms (Real Time)
   detectedNote: string | null;
   noteStatuses?: Map<number, 'HIT' | 'MISS' | 'PENDING'>;
+  speedMultiplier?: number;
 }
 
 // Map notes to Y positions.
@@ -62,7 +63,7 @@ function getNoteY(noteName: string, octave: number, isQuarterTone?: boolean) {
   return y;
 }
 
-export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, detectedNote, noteStatuses }) => {
+export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, detectedNote, noteStatuses, speedMultiplier = 1.0 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -102,18 +103,24 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
     }
     
     // Draw Notes
-    const PX_PER_MS = 0.2;
+    // FIXED: Increased PIXELS_PER_SECOND from 0.2 to 0.3
+    const PX_PER_MS = 0.3;
     const HIT_X = 200;
 
     song.notes.forEach((note, index) => {
-        const x = HIT_X + (note.startTime - currentTime) * PX_PER_MS;
-        const width = note.duration * PX_PER_MS;
+        // FIXED: Scale time logic
+        const targetStartTime = note.startTime / speedMultiplier;
+        const targetDuration = note.duration / speedMultiplier;
+
+        const x = HIT_X + (targetStartTime - currentTime) * PX_PER_MS;
+        const width = targetDuration * PX_PER_MS;
         const y = getNoteY(note.noteName, note.octave, note.isQuarterTone);
 
         // Optimization
         if (x + width < 0 || x > canvas.width) return;
 
-        const isActive = (currentTime >= note.startTime && currentTime <= note.startTime + note.duration);
+        // Visual Active Check uses Real Time vs Scaled Time
+        const isActive = (currentTime >= targetStartTime && currentTime <= targetStartTime + targetDuration);
         
         // Determine Color based on Status
         let noteColor = '#cccccc';
@@ -190,13 +197,30 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
              ctx.textBaseline = 'alphabetic';
         }
         
-        // Technique
-        if (note.technique && note.technique !== 'normal') {
-            ctx.fillStyle = '#aaaaaa';
-            ctx.font = 'italic 10px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(note.technique, x + width / 2, y - 12);
-            ctx.textAlign = 'start';
+        // Technique (e.g., Trill)
+        if (note.technique) {
+             if (note.technique === 'trill') {
+                 // FIXED: Draw Wavy Line
+                 ctx.strokeStyle = '#fff';
+                 ctx.lineWidth = 2;
+                 ctx.beginPath();
+                 const waveY = y - 14;
+                 const waveWidth = Math.min(width, 40); // Cap width for icon
+                 const startX = x + (width - waveWidth) / 2;
+
+                 for (let i = 0; i <= waveWidth; i+=4) {
+                     const wy = waveY + Math.sin(i * 0.8) * 3;
+                     if (i===0) ctx.moveTo(startX + i, wy);
+                     else ctx.lineTo(startX + i, wy);
+                 }
+                 ctx.stroke();
+             } else if (note.technique !== 'normal') {
+                 ctx.fillStyle = '#aaaaaa';
+                 ctx.font = 'italic 10px Arial';
+                 ctx.textAlign = 'center';
+                 ctx.fillText(note.technique, x + width / 2, y - 12);
+                 ctx.textAlign = 'start';
+             }
         }
 
         // Lyric
@@ -209,7 +233,7 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
         }
     });
 
-  }, [song, currentTime, detectedNote, noteStatuses]);
+  }, [song, currentTime, detectedNote, noteStatuses, speedMultiplier]);
 
   const isVibrating = detectedNote !== null && detectedNote !== undefined;
 
