@@ -170,7 +170,15 @@ export const SummaryScreen: React.FC<SummaryProps> = (props) => {
                 </ExerciseRecommendation>
             )}
 
-            <Button onClick={props.onRestart}>Play Again</Button>
+            <div style={{ display: 'flex', gap: '20px' }}>
+                <Button onClick={props.onRestart}>Play Again</Button>
+                <Button
+                    onClick={() => window.location.reload()} // Hack for now to go to menu/exercises or use navigation prop if available
+                    style={{ backgroundColor: '#ff9800', color: 'white' }}
+                >
+                    🏋️ Egzersizlere Git
+                </Button>
+            </div>
         </Overlay>
     );
 };
