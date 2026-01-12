@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { toSolfege } from '../utils/pitchUtils';
+import { EXERCISES, type Exercise } from '../data/exercises';
 
 const Overlay = styled.div`
   position: absolute;
@@ -12,6 +13,8 @@ const Overlay = styled.div`
   justify-content: center;
   z-index: 200;
   color: white;
+  overflow-y: auto;
+  padding: 20px;
 `;
 
 const Title = styled.h2`
@@ -49,6 +52,16 @@ const FeedbackSection = styled.div`
   width: 100%;
   border-left: 5px solid #ffcc00;
   margin-bottom: 30px;
+`;
+
+const ExerciseRecommendation = styled.div`
+  background: linear-gradient(135deg, #2c3e50, #4ca1af);
+  padding: 20px;
+  border-radius: 12px;
+  max-width: 600px;
+  width: 100%;
+  margin-bottom: 30px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 `;
 
 const Button = styled.button`
@@ -111,6 +124,15 @@ export const SummaryScreen: React.FC<SummaryProps> = (props) => {
 
     if (feedbackLines.length === 0) feedbackLines.push("Keep practicing to improve!");
 
+    // Exercise Recommendation Logic
+    let recommendedExercise: Exercise | null = null;
+    if (accuracy < 70) {
+        // Simple logic: randomly pick one or pick based on level (not passed in props yet, assume beginner/intermediate)
+        // If many misses, maybe Beginner.
+        if (accuracy < 40) recommendedExercise = EXERCISES.find(e => e.level === 'beginner') || null;
+        else recommendedExercise = EXERCISES.find(e => e.level === 'intermediate') || null;
+    }
+
     return (
         <Overlay>
             <Title>Song Finished!</Title>
@@ -138,6 +160,15 @@ export const SummaryScreen: React.FC<SummaryProps> = (props) => {
                     {feedbackLines.map((line, i) => <li key={i} style={{margin: '10px 0', fontSize: '1.1rem'}}>{line}</li>)}
                 </ul>
             </FeedbackSection>
+
+            {recommendedExercise && (
+                <ExerciseRecommendation>
+                    <h3>💡 Recommendation</h3>
+                    <div style={{marginBottom: '10px'}}>Score low? Try this exercise to improve:</div>
+                    <div style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{recommendedExercise.title}</div>
+                    <div style={{fontSize: '0.9rem', opacity: 0.8}}>{recommendedExercise.level.toUpperCase()} • Focus: Finger {recommendedExercise.targetFinger}</div>
+                </ExerciseRecommendation>
+            )}
 
             <Button onClick={props.onRestart}>Play Again</Button>
         </Overlay>

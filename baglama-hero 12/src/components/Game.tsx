@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import styled from 'styled-components';
+import styled, { keyframes, css } from 'styled-components';
 import { useAudioInput } from '../hooks/useAudioInput';
 import { useGameLoop } from '../hooks/useGameLoop';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
@@ -50,27 +50,58 @@ const PitchDisplay = styled.div`
   color: #ccc;
 `;
 
-const ScoreDisplay = styled.div`
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: #61dafb;
-  text-shadow: 0 0 10px rgba(97, 218, 251, 0.5);
+const ScoreContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 `;
 
-const Button = styled.button`
+const ScoreDisplay = styled.div`
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: #61dafb;
+  text-shadow: 0 0 15px rgba(97, 218, 251, 0.6);
+  font-family: 'Courier New', monospace;
+  letter-spacing: -1px;
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+`;
+
+const fireAnim = keyframes`
+  0% { text-shadow: 0 0 10px #ff0000; color: #ffcc00; }
+  50% { text-shadow: 0 0 20px #ff6600; color: #ffff00; }
+  100% { text-shadow: 0 0 10px #ff0000; color: #ffcc00; }
+`;
+
+const ComboDisplay = styled.div<{ $isFire: boolean }>`
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: ${props => props.$isFire ? '#ffcc00' : '#aaa'};
+  animation: ${props => props.$isFire ? css`${pulse} 0.5s infinite, ${fireAnim} 1s infinite` : 'none'};
+  transition: all 0.2s;
+`;
+
+const Button = styled.button<{ secondary?: boolean }>`
   padding: 15px 40px;
   font-size: 1.4rem;
-  background: linear-gradient(90deg, #61dafb 0%, #21a1f1 100%);
-  border: none;
+  background: ${props => props.secondary ? 'rgba(255,255,255,0.1)' : 'linear-gradient(90deg, #61dafb 0%, #21a1f1 100%)'};
+  border: ${props => props.secondary ? '1px solid rgba(255,255,255,0.3)' : 'none'};
   border-radius: 30px;
   cursor: pointer;
   color: white;
   font-weight: bold;
-  box-shadow: 0 4px 15px rgba(33, 161, 241, 0.4);
+  box-shadow: ${props => props.secondary ? 'none' : '0 4px 15px rgba(33, 161, 241, 0.4)'};
   transition: transform 0.2s;
 
   &:active {
     transform: scale(0.95);
+  }
+  &:hover {
+      background: ${props => props.secondary ? 'rgba(255,255,255,0.2)' : 'linear-gradient(90deg, #61dafb 0%, #21a1f1 100%)'};
   }
 `;
 
@@ -85,6 +116,18 @@ const IconButton = styled.button`
   &:hover { background: rgba(255,255,255,0.1); }
 `;
 
+const SpeedButton = styled.button<{ active: boolean }>`
+  background: ${props => props.active ? '#61dafb' : 'rgba(255,255,255,0.1)'};
+  color: ${props => props.active ? '#000' : '#fff'};
+  border: 1px solid ${props => props.active ? '#61dafb' : 'rgba(255,255,255,0.3)'};
+  padding: 5px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.8rem;
+  &:hover { opacity: 0.9; }
+`;
+
 const DebugPanel = styled.div`
   position: absolute;
   bottom: 80px;
@@ -96,7 +139,7 @@ const DebugPanel = styled.div`
   z-index: 100;
 `;
 
-const SpeedControl = styled.div`
+const ControlGroup = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
@@ -136,20 +179,23 @@ interface GameProps {
 export function Game({ song, onExit }: GameProps) {
   const [gameState, setGameState] = useState<'IDLE' | 'PLAYING' | 'FINISHED'>('IDLE');
   const [isListening, setIsListening] = useState(false);
+  const [isListenOnlyMode, setIsListenOnlyMode] = useState(false);
   const [simFreq, setSimFreq] = useState<number | null>(null);
   const [showDebug, setShowDebug] = useState(false);
+
+  // Speed Control
   const [targetBpm, setTargetBpm] = useState(song.bpm);
+  const playbackSpeed = targetBpm / song.bpm;
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
 
-  // Evaluator Instance
-  const evaluatorRef = useRef(new PerformanceEvaluator());
-
+  // Reset BPM when song changes
   useEffect(() => {
     setTargetBpm(song.bpm);
   }, [song]);
 
-  const speed = targetBpm / song.bpm;
-  
+  // Evaluator Instance
+  const evaluatorRef = useRef(new PerformanceEvaluator());
+
   // Stats
   const [stats, setStats] = useState({
       hits: 0,
@@ -157,8 +203,12 @@ export function Game({ song, onExit }: GameProps) {
       early: 0,
       late: 0,
       perfect: 0,
+      maxCombo: 0,
       missedNotesMap: new Map<string, number>()
   });
+
+  // Combo
+  const [combo, setCombo] = useState(0);
 
   // Note Status Tracking for Visualization
   const [noteStatuses, setNoteStatuses] = useState<Map<number, 'HIT' | 'MISS' | 'PENDING'>>(new Map());
@@ -169,13 +219,13 @@ export function Game({ song, onExit }: GameProps) {
 
   // Game Loop
   const isPlaying = gameState === 'PLAYING';
-  const currentTime = useGameLoop(isPlaying, speed);
+  const currentTime = useGameLoop(isPlaying, playbackSpeed);
 
   // Audio Player (Synthesizer)
-  useAudioPlayer(song, isPlaying, currentTime, speed, metronomeEnabled);
+  useAudioPlayer(song, isPlaying, currentTime, playbackSpeed, metronomeEnabled);
   
   // Audio Input
-  const pitch = useAudioInput(isListening || isPlaying, simFreq);
+  const pitch = useAudioInput(isListening && !isListenOnlyMode, simFreq);
 
   // Scoring
   const [score, setScore] = useState(0);
@@ -195,12 +245,12 @@ export function Game({ song, onExit }: GameProps) {
   }, [currentTime, gameState, song]);
 
   const updateTeacher = () => {
+      if (isListenOnlyMode) return;
+
       const history = recentHistoryRef.current;
       if (history.length < 5) return;
 
-      // Analyze last 5
       const last5 = history.slice(-5);
-      
       const misses = last5.filter(h => h.type === 'MISS').length;
       const lates = last5.filter(h => h.timing === 'LATE').length;
       const earlies = last5.filter(h => h.timing === 'EARLY').length;
@@ -233,16 +283,17 @@ export function Game({ song, onExit }: GameProps) {
   useEffect(() => {
     if (gameState !== 'PLAYING') return;
 
-    const HIT_WINDOW = 200; // Legacy window for Timeout check
-    const EVAL_WINDOW = 500; // Broad window to start evaluating
+    if (isListenOnlyMode) return;
+
+    const HIT_WINDOW = 200;
+    const EVAL_WINDOW = 500;
     
-    // We iterate to find unprocessed notes that should be handled
     const newStatuses = new Map(noteStatuses);
     let changed = false;
     let eventOccurred = false;
 
     song.notes.forEach((note, index) => {
-        if (newStatuses.has(index)) return; // Already processed
+        if (newStatuses.has(index)) return;
 
         // 1. Check if Missed (Time passed beyond recovery)
         if (currentTime > note.startTime + note.duration + HIT_WINDOW) {
@@ -253,6 +304,8 @@ export function Game({ song, onExit }: GameProps) {
             recentHistoryRef.current.push({ type: 'MISS' });
 
             setFeedback('MISS');
+            setCombo(0); // Reset Combo
+
             setStats(s => {
                 const newMap = new Map(s.missedNotesMap);
                 newMap.set(note.noteName, (newMap.get(note.noteName) || 0) + 1);
@@ -263,7 +316,6 @@ export function Game({ song, onExit }: GameProps) {
         }
 
         // 2. Check for Hit using Evaluator
-        // We only check if we are within a reasonable range of the note
         if (currentTime >= note.startTime - EVAL_WINDOW && currentTime <= note.startTime + note.duration) {
 
             const targetFreq = getFrequencyFromNote(note.noteName, note.octave, note.isQuarterTone);
@@ -276,9 +328,6 @@ export function Game({ song, onExit }: GameProps) {
                 currentTime
             );
 
-            // We only act if the result is a successful hit (PERFECT, GOOD, EARLY, LATE)
-            // We ignore WRONG_NOTE or MISS (due to timing/silence) to allow user to correct themselves
-            // until the timeout logic above kicks in.
             if (['PERFECT', 'GOOD', 'EARLY', 'LATE'].includes(result.status)) {
                 newStatuses.set(index, 'HIT');
                 changed = true;
@@ -288,7 +337,16 @@ export function Game({ song, onExit }: GameProps) {
                 
                 recentHistoryRef.current.push({ type: 'HIT', timing });
 
-                setScore(s => s + result.scoreDelta);
+                // Scoring with Multiplier
+                const currentCombo = combo + 1;
+                setCombo(currentCombo);
+                setStats(s => ({...s, maxCombo: Math.max(s.maxCombo, currentCombo)}));
+
+                // Formula: BaseScore * (1 + Combo/10)
+                const multiplier = 1 + (currentCombo / 10);
+                const points = Math.round(result.scoreDelta * multiplier);
+
+                setScore(s => s + points);
                 setFeedback(timing);
                 
                 setStats(s => ({
@@ -313,11 +371,20 @@ export function Game({ song, onExit }: GameProps) {
         updateTeacher();
     }
 
-  }, [currentTime, pitch, gameState, noteStatuses, song]); 
+  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo]);
 
   const startGame = () => {
     setGameState('PLAYING');
     setIsListening(true);
+    setIsListenOnlyMode(false);
+    recentHistoryRef.current = [];
+    setTeacherState({ message: null, mood: 'neutral' });
+  };
+
+  const startListenMode = () => {
+    setGameState('PLAYING');
+    setIsListening(true);
+    setIsListenOnlyMode(true);
     recentHistoryRef.current = [];
     setTeacherState({ message: null, mood: 'neutral' });
   };
@@ -325,9 +392,11 @@ export function Game({ song, onExit }: GameProps) {
   const stopGame = () => {
     setGameState('IDLE');
     setIsListening(false);
+    setIsListenOnlyMode(false);
     setNoteStatuses(new Map());
     setScore(0);
-    setStats({ hits: 0, misses: 0, early: 0, late: 0, perfect: 0, missedNotesMap: new Map() });
+    setCombo(0);
+    setStats({ hits: 0, misses: 0, early: 0, late: 0, perfect: 0, maxCombo: 0, missedNotesMap: new Map() });
     setTeacherState({ message: null, mood: 'neutral' });
   };
 
@@ -342,35 +411,33 @@ export function Game({ song, onExit }: GameProps) {
       <TopBar>
          <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
              <IconButton onClick={onExit}>← Menu</IconButton>
-             <div style={{fontWeight: 'bold'}}>{song.title}</div>
+             <div style={{display: 'flex', flexDirection: 'column'}}>
+                <div style={{fontWeight: 'bold'}}>
+                    {song.title} {isListenOnlyMode && <span style={{color: '#61dafb', fontSize: '0.8rem'}}>(Listen Mode)</span>}
+                </div>
+                <div style={{fontSize: '0.8rem', color: '#aaa'}}>{song.bpm} BPM</div>
+             </div>
          </div>
          
-         <SpeedControl>
-             <span style={{fontSize: '0.9rem', color: '#ccc'}}>BPM:</span>
-             <input 
-                type="number" 
-                min="40" 
-                max="300" 
-                value={Math.round(targetBpm)} 
-                onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    if (!isNaN(val)) setTargetBpm(val);
-                }}
-                style={{
-                    width: '60px', 
-                    background: 'rgba(255,255,255,0.1)', 
-                    border: '1px solid #555', 
-                    color: 'white', 
-                    textAlign: 'center', 
-                    borderRadius: '4px',
-                    padding: '4px'
-                }}
-             />
-         </SpeedControl>
+         <ControlGroup>
+             <span style={{fontSize: '0.8rem', color: '#ccc'}}>Speed:</span>
+             <IconButton onClick={() => setTargetBpm(Math.max(20, targetBpm - 1))}>-</IconButton>
+             <span style={{minWidth: '60px', textAlign: 'center', fontWeight: 'bold'}}>{targetBpm} BPM</span>
+             <IconButton onClick={() => setTargetBpm(Math.min(300, targetBpm + 1))}>+</IconButton>
+         </ControlGroup>
 
          <div style={{flex: 1}} />
 
-         <ScoreDisplay>{score}</ScoreDisplay>
+         {!isListenOnlyMode && (
+             <ScoreContainer>
+                 <ScoreDisplay>{score.toLocaleString()}</ScoreDisplay>
+                 {combo > 1 && (
+                     <ComboDisplay $isFire={combo > 10}>
+                         {combo}x COMBO! {combo > 10 && '🔥'}
+                     </ComboDisplay>
+                 )}
+             </ScoreContainer>
+         )}
          
          <div style={{width: '20px'}} />
          
@@ -382,7 +449,7 @@ export function Game({ song, onExit }: GameProps) {
                  Metronome
              </IconButton>
              <IconButton onClick={() => setShowDebug(!showDebug)}>
-                 {showDebug ? "Hide Debug" : "Config"}
+                 Config
              </IconButton>
          </div>
       </TopBar>
@@ -407,7 +474,10 @@ export function Game({ song, onExit }: GameProps) {
             {/* Start Button Overlay */}
             {!isPlaying && gameState !== 'FINISHED' && (
                 <div style={{position: 'absolute', zIndex: 20, display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center'}}>
-                    <Button onClick={startGame}>Start Song</Button>
+                    <div style={{display: 'flex', gap: '20px'}}>
+                        <Button onClick={startGame}>Start Song</Button>
+                        <Button secondary onClick={startListenMode}>Dinle</Button>
+                    </div>
                     <div style={{background: 'rgba(0,0,0,0.5)', padding: '10px', borderRadius: '10px', fontSize: '0.9rem'}}>
                         Tip: Use headphones for best results
                     </div>
@@ -439,7 +509,9 @@ export function Game({ song, onExit }: GameProps) {
         {/* Bottom Status Bar */}
         <div style={{height: '60px', width: '100%', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
             <PitchDisplay>
-            {pitch ? (
+            {isListenOnlyMode ? (
+                 <span style={{opacity: 0.7, fontStyle: 'italic'}}>Listen Mode Active - Audio Only ({playbackSpeed}x Speed)</span>
+            ) : pitch ? (
                 <span>
                     {toSolfege(pitch.noteName)}{pitch.isQuarterTone ? '+' : ''}
                     <span style={{fontSize: '0.8rem', color: '#666', marginLeft: '5px'}}>
@@ -447,7 +519,7 @@ export function Game({ song, onExit }: GameProps) {
                     </span>
                 </span>
             ) : (
-                <span style={{opacity: 0.5}}>Ready...</span>
+                <span style={{opacity: 0.5}}>Ready... {playbackSpeed !== 1.0 && `(${playbackSpeed}x)`}</span>
             )}
             </PitchDisplay>
         </div>
