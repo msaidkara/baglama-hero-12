@@ -97,4 +97,4 @@ function parseMavilim(data: SimpleNote[], bpm: number): Song {
     };
 }
 
-export const MAVILIM = parseMavilim(rawMavilim, 71);
+export const MAVILIM = parseMavilim(rawMavilim, 90);

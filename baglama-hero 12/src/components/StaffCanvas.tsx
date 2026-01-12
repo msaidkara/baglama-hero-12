@@ -103,7 +103,6 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
     }
     
     // Draw Notes
-    // FIXED: Increased PIXELS_PER_SECOND from 0.2 to 0.3
     const PX_PER_MS = 0.3;
     const HIT_X = 200;
 
@@ -113,13 +112,20 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
         const targetDuration = note.duration / speedMultiplier;
 
         const x = HIT_X + (targetStartTime - currentTime) * PX_PER_MS;
-        const width = targetDuration * PX_PER_MS;
+
+        // VISUALS: Staccato Feel
+        // Cap note width to 80% of duration to make them look distinct.
+        // Also ensure a minimum width for visibility.
+        const fullWidth = targetDuration * PX_PER_MS;
+        const width = Math.max(fullWidth * 0.8, 5);
+
         const y = getNoteY(note.noteName, note.octave, note.isQuarterTone);
 
         // Optimization
         if (x + width < 0 || x > canvas.width) return;
 
         // Visual Active Check uses Real Time vs Scaled Time
+        // Note: targetDuration is the full duration, even if we draw it smaller.
         const isActive = (currentTime >= targetStartTime && currentTime <= targetStartTime + targetDuration);
         
         // Determine Color based on Status
@@ -151,7 +157,8 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
         
         // Draw Note Bar
         ctx.beginPath();
-        ctx.roundRect(x, y - 8, width, 16, 8);
+        // Use standard rect or rounded
+        ctx.roundRect(x, y - 8, width, 16, 6);
         ctx.fill();
         ctx.shadowBlur = 0;
 
@@ -159,7 +166,11 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
         ctx.fillStyle = 'black';
         ctx.font = 'bold 10px Arial';
         const label = `${toSolfege(note.noteName)}${note.isQuarterTone ? '+' : ''}`;
-        ctx.fillText(label, x + 5, y + 4);
+
+        // Only draw text if width permits
+        if (width > 20) {
+            ctx.fillText(label, x + 5, y + 4);
+        }
 
         // Finger Number
         if (note.finger !== undefined) {
@@ -218,6 +229,7 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
                  ctx.fillStyle = '#aaaaaa';
                  ctx.font = 'italic 10px Arial';
                  ctx.textAlign = 'center';
+                 // Center relative to visible width
                  ctx.fillText(note.technique, x + width / 2, y - 12);
                  ctx.textAlign = 'start';
              }
@@ -228,6 +240,7 @@ export const StaffCanvas: React.FC<StaffCanvasProps> = ({ song, currentTime, det
             ctx.fillStyle = 'white';
             ctx.font = 'bold 12px Arial';
             ctx.textAlign = 'center';
+            // Center relative to visible width
             ctx.fillText(note.lyric, x + width / 2, y + 25);
             ctx.textAlign = 'start';
         }
