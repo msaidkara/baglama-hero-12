@@ -184,8 +184,14 @@ export function Game({ song, onExit }: GameProps) {
   const [showDebug, setShowDebug] = useState(false);
 
   // Speed Control
-  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [targetBpm, setTargetBpm] = useState(song.bpm);
+  const playbackSpeed = targetBpm / song.bpm;
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
+
+  // Reset BPM when song changes
+  useEffect(() => {
+    setTargetBpm(song.bpm);
+  }, [song]);
 
   // Evaluator Instance
   const evaluatorRef = useRef(new PerformanceEvaluator());
@@ -415,9 +421,9 @@ export function Game({ song, onExit }: GameProps) {
          
          <ControlGroup>
              <span style={{fontSize: '0.8rem', color: '#ccc'}}>Speed:</span>
-             <SpeedButton active={playbackSpeed === 0.5} onClick={() => setPlaybackSpeed(0.5)}>0.5x</SpeedButton>
-             <SpeedButton active={playbackSpeed === 0.75} onClick={() => setPlaybackSpeed(0.75)}>0.75x</SpeedButton>
-             <SpeedButton active={playbackSpeed === 1.0} onClick={() => setPlaybackSpeed(1.0)}>1.0x</SpeedButton>
+             <IconButton onClick={() => setTargetBpm(Math.max(20, targetBpm - 1))}>-</IconButton>
+             <span style={{minWidth: '60px', textAlign: 'center', fontWeight: 'bold'}}>{targetBpm} BPM</span>
+             <IconButton onClick={() => setTargetBpm(Math.min(300, targetBpm + 1))}>+</IconButton>
          </ControlGroup>
 
          <div style={{flex: 1}} />
