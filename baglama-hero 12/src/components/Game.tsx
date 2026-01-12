@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import { useAudioInput } from '../hooks/useAudioInput';
 import { useGameLoop } from '../hooks/useGameLoop';
@@ -116,29 +116,6 @@ const IconButton = styled.button`
   &:hover { background: rgba(255,255,255,0.1); }
 `;
 
-const SpeedButton = styled.button<{ active: boolean }>`
-  background: ${props => props.active ? '#61dafb' : 'rgba(255,255,255,0.1)'};
-  color: ${props => props.active ? '#000' : '#fff'};
-  border: 1px solid ${props => props.active ? '#61dafb' : 'rgba(255,255,255,0.3)'};
-  padding: 5px 10px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-weight: bold;
-  font-size: 0.8rem;
-  &:hover { opacity: 0.9; }
-`;
-
-const DebugPanel = styled.div`
-  position: absolute;
-  bottom: 80px;
-  left: 20px; right: 20px;
-  padding: 15px;
-  background: rgba(0,0,0,0.8);
-  border-radius: 12px;
-  border: 1px solid #444;
-  z-index: 100;
-`;
-
 const ControlGroup = styled.div`
   display: flex;
   align-items: center;
@@ -173,25 +150,30 @@ const FeedbackText = styled.div<{ type: string | null }>`
 
 interface GameProps {
     song: Song;
+    initialMode: 'PLAY' | 'LISTEN';
     onExit: () => void;
 }
 
-export function Game({ song, onExit }: GameProps) {
+export function Game({ song, initialMode, onExit }: GameProps) {
   const [gameState, setGameState] = useState<'IDLE' | 'PLAYING' | 'FINISHED'>('IDLE');
   const [isListening, setIsListening] = useState(false);
-  const [isListenOnlyMode, setIsListenOnlyMode] = useState(false);
-  const [simFreq, setSimFreq] = useState<number | null>(null);
-  const [showDebug, setShowDebug] = useState(false);
+  const [isListenOnlyMode, setIsListenOnlyMode] = useState(initialMode === 'LISTEN');
+  const [simFreq] = useState<number | null>(null);
 
   // Speed Control
   const [targetBpm, setTargetBpm] = useState(song.bpm);
-  const playbackSpeed = targetBpm / song.bpm;
+
+  // FIXED: Speed Logic.
+  // speedMultiplier makes the timestamps effectively "shorter" so events happen sooner.
+  const speedMultiplier = targetBpm / song.bpm;
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
 
   // Reset BPM when song changes
   useEffect(() => {
     setTargetBpm(song.bpm);
-  }, [song]);
+    setIsListenOnlyMode(initialMode === 'LISTEN');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song, initialMode]);
 
   // Evaluator Instance
   const evaluatorRef = useRef(new PerformanceEvaluator());
@@ -219,10 +201,14 @@ export function Game({ song, onExit }: GameProps) {
 
   // Game Loop
   const isPlaying = gameState === 'PLAYING';
-  const currentTime = useGameLoop(isPlaying, playbackSpeed);
+
+  // FIXED: Pass speed=1.0 to useGameLoop so currentTime is always Real Time (accumulated delta).
+  // We handle speed by scaling the timestamps of the notes, not the clock.
+  const currentTime = useGameLoop(isPlaying, 1.0);
 
   // Audio Player (Synthesizer)
-  useAudioPlayer(song, isPlaying, currentTime, playbackSpeed, metronomeEnabled);
+  // FIXED: Pass speedMultiplier so AudioPlayer can scale triggers and durations.
+  useAudioPlayer(song, isPlaying, currentTime, speedMultiplier, metronomeEnabled);
   
   // Audio Input
   const pitch = useAudioInput(isListening && !isListenOnlyMode, simFreq);
@@ -235,14 +221,15 @@ export function Game({ song, onExit }: GameProps) {
   useEffect(() => {
       if (gameState === 'PLAYING') {
           const lastNote = song.notes[song.notes.length - 1];
-          const endTime = lastNote.startTime + lastNote.duration + 1000;
+          // Scale the end check too
+          const endTime = (lastNote.startTime + lastNote.duration) / speedMultiplier + 1000;
           if (currentTime > endTime) {
               // eslint-disable-next-line react-hooks/set-state-in-effect
               setGameState('FINISHED');
               setIsListening(false);
           }
       }
-  }, [currentTime, gameState, song]);
+  }, [currentTime, gameState, song, speedMultiplier]);
 
   const updateTeacher = () => {
       if (isListenOnlyMode) return;
@@ -285,8 +272,8 @@ export function Game({ song, onExit }: GameProps) {
 
     if (isListenOnlyMode) return;
 
-    const HIT_WINDOW = 200;
-    const EVAL_WINDOW = 500;
+    const HIT_WINDOW = 200; // ms (Real Time)
+    const EVAL_WINDOW = 500; // ms (Real Time)
     
     const newStatuses = new Map(noteStatuses);
     let changed = false;
@@ -295,8 +282,13 @@ export function Game({ song, onExit }: GameProps) {
     song.notes.forEach((note, index) => {
         if (newStatuses.has(index)) return;
 
+        // FIXED: Scale timestamps for logic
+        const targetStartTime = note.startTime / speedMultiplier;
+        const targetDuration = note.duration / speedMultiplier;
+        const targetEndTime = targetStartTime + targetDuration;
+
         // 1. Check if Missed (Time passed beyond recovery)
-        if (currentTime > note.startTime + note.duration + HIT_WINDOW) {
+        if (currentTime > targetEndTime + HIT_WINDOW) {
             newStatuses.set(index, 'MISS');
             changed = true;
             eventOccurred = true;
@@ -316,15 +308,16 @@ export function Game({ song, onExit }: GameProps) {
         }
 
         // 2. Check for Hit using Evaluator
-        if (currentTime >= note.startTime - EVAL_WINDOW && currentTime <= note.startTime + note.duration) {
+        if (currentTime >= targetStartTime - EVAL_WINDOW && currentTime <= targetEndTime) {
 
             const targetFreq = getFrequencyFromNote(note.noteName, note.octave, note.isQuarterTone);
             const detectedFreq = pitch ? pitch.frequency : null;
 
+            // FIXED: Pass the SCALED target time
             const result = evaluatorRef.current.evaluate(
                 targetFreq,
                 detectedFreq,
-                note.startTime,
+                targetStartTime,
                 currentTime
             );
 
@@ -370,21 +363,12 @@ export function Game({ song, onExit }: GameProps) {
     if (eventOccurred) {
         updateTeacher();
     }
-
-  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo, speedMultiplier]);
 
   const startGame = () => {
     setGameState('PLAYING');
     setIsListening(true);
-    setIsListenOnlyMode(false);
-    recentHistoryRef.current = [];
-    setTeacherState({ message: null, mood: 'neutral' });
-  };
-
-  const startListenMode = () => {
-    setGameState('PLAYING');
-    setIsListening(true);
-    setIsListenOnlyMode(true);
     recentHistoryRef.current = [];
     setTeacherState({ message: null, mood: 'neutral' });
   };
@@ -392,18 +376,11 @@ export function Game({ song, onExit }: GameProps) {
   const stopGame = () => {
     setGameState('IDLE');
     setIsListening(false);
-    setIsListenOnlyMode(false);
     setNoteStatuses(new Map());
     setScore(0);
     setCombo(0);
     setStats({ hits: 0, misses: 0, early: 0, late: 0, perfect: 0, maxCombo: 0, missedNotesMap: new Map() });
     setTeacherState({ message: null, mood: 'neutral' });
-  };
-
-  const handleSimChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
-    if (val === 0) setSimFreq(null);
-    else setSimFreq(val);
   };
 
   return (
@@ -421,9 +398,9 @@ export function Game({ song, onExit }: GameProps) {
          
          <ControlGroup>
              <span style={{fontSize: '0.8rem', color: '#ccc'}}>Speed:</span>
-             <IconButton onClick={() => setTargetBpm(Math.max(20, targetBpm - 1))}>-</IconButton>
+             <IconButton onClick={() => setTargetBpm(Math.max(20, targetBpm - 5))}>-</IconButton>
              <span style={{minWidth: '60px', textAlign: 'center', fontWeight: 'bold'}}>{targetBpm} BPM</span>
-             <IconButton onClick={() => setTargetBpm(Math.min(300, targetBpm + 1))}>+</IconButton>
+             <IconButton onClick={() => setTargetBpm(Math.min(300, targetBpm + 5))}>+</IconButton>
          </ControlGroup>
 
          <div style={{flex: 1}} />
@@ -448,9 +425,7 @@ export function Game({ song, onExit }: GameProps) {
              }}>
                  Metronome
              </IconButton>
-             <IconButton onClick={() => setShowDebug(!showDebug)}>
-                 Config
-             </IconButton>
+             {/* Config Button REMOVED */}
          </div>
       </TopBar>
       
@@ -462,6 +437,7 @@ export function Game({ song, onExit }: GameProps) {
                 currentTime={currentTime} 
                 detectedNote={pitch ? pitch.noteName : null}
                 noteStatuses={noteStatuses}
+                speedMultiplier={speedMultiplier}
             />
             <FeedbackText type={feedback}>{feedback}</FeedbackText>
             
@@ -475,12 +451,15 @@ export function Game({ song, onExit }: GameProps) {
             {!isPlaying && gameState !== 'FINISHED' && (
                 <div style={{position: 'absolute', zIndex: 20, display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center'}}>
                     <div style={{display: 'flex', gap: '20px'}}>
-                        <Button onClick={startGame}>Start Song</Button>
-                        <Button secondary onClick={startListenMode}>Dinle</Button>
+                        <Button onClick={startGame}>
+                            {isListenOnlyMode ? "Start Listening" : "Start Game"}
+                        </Button>
                     </div>
-                    <div style={{background: 'rgba(0,0,0,0.5)', padding: '10px', borderRadius: '10px', fontSize: '0.9rem'}}>
-                        Tip: Use headphones for best results
-                    </div>
+                    {!isListenOnlyMode && (
+                        <div style={{background: 'rgba(0,0,0,0.5)', padding: '10px', borderRadius: '10px', fontSize: '0.9rem'}}>
+                            Tip: Use headphones for best results
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -510,7 +489,7 @@ export function Game({ song, onExit }: GameProps) {
         <div style={{height: '60px', width: '100%', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
             <PitchDisplay>
             {isListenOnlyMode ? (
-                 <span style={{opacity: 0.7, fontStyle: 'italic'}}>Listen Mode Active - Audio Only ({playbackSpeed}x Speed)</span>
+                 <span style={{opacity: 0.7, fontStyle: 'italic'}}>Listen Mode Active - Audio Only ({speedMultiplier.toFixed(2)}x Speed)</span>
             ) : pitch ? (
                 <span>
                     {toSolfege(pitch.noteName)}{pitch.isQuarterTone ? '+' : ''}
@@ -519,34 +498,13 @@ export function Game({ song, onExit }: GameProps) {
                     </span>
                 </span>
             ) : (
-                <span style={{opacity: 0.5}}>Ready... {playbackSpeed !== 1.0 && `(${playbackSpeed}x)`}</span>
+                <span style={{opacity: 0.5}}>Ready... {speedMultiplier !== 1.0 && `(${speedMultiplier.toFixed(2)}x)`}</span>
             )}
             </PitchDisplay>
         </div>
       </MainContent>
 
-      {showDebug && (
-      <DebugPanel>
-        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px'}}>
-             <h3>Simulation</h3>
-             <IconButton onClick={() => setShowDebug(false)}>X</IconButton>
-        </div>
-        <input 
-          type="range" 
-          min="0" 
-          max="1000" 
-          step="1" 
-          defaultValue="0" 
-          onChange={handleSimChange} 
-          style={{width: '100%', height: '40px'}} 
-        />
-        <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '15px'}}>
-          <button onClick={() => setSimFreq(440)} style={{padding: '10px'}}>La (A4)</button>
-          <button onClick={() => setSimFreq(480)} style={{padding: '10px'}}>Si+ (Segah)</button>
-          <button onClick={() => setSimFreq(523)} style={{padding: '10px'}}>Do (C5)</button>
-        </div>
-      </DebugPanel>
-      )}
+      {/* DebugPanel REMOVED */}
     </Container>
   );
 }
