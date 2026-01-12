@@ -6,9 +6,9 @@ import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { StaffCanvas } from '../components/StaffCanvas';
 import { SummaryScreen } from '../components/SummaryScreen';
 import { TeacherFeedback } from '../components/TeacherFeedback';
+import { PerformanceEvaluator } from '../services/PerformanceEvaluator';
 import type { Song } from '../types';
-import { checkPitch, checkTiming } from '../utils/gameLogic';
-import { toSolfege } from '../utils/pitchUtils';
+import { getFrequencyFromNote, toSolfege } from '../utils/pitchUtils';
 
 const Container = styled.div`
   position: fixed;
@@ -141,6 +141,9 @@ export function Game({ song, onExit }: GameProps) {
   const [targetBpm, setTargetBpm] = useState(song.bpm);
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
 
+  // Evaluator Instance
+  const evaluatorRef = useRef(new PerformanceEvaluator());
+
   useEffect(() => {
     setTargetBpm(song.bpm);
   }, [song]);
@@ -226,11 +229,12 @@ export function Game({ song, onExit }: GameProps) {
       }
   };
 
-  // Gameplay Logic
+  // Gameplay Logic using PerformanceEvaluator
   useEffect(() => {
     if (gameState !== 'PLAYING') return;
 
-    const HIT_WINDOW = 200;
+    const HIT_WINDOW = 200; // Legacy window for Timeout check
+    const EVAL_WINDOW = 500; // Broad window to start evaluating
     
     // We iterate to find unprocessed notes that should be handled
     const newStatuses = new Map(noteStatuses);
@@ -240,7 +244,7 @@ export function Game({ song, onExit }: GameProps) {
     song.notes.forEach((note, index) => {
         if (newStatuses.has(index)) return; // Already processed
 
-        // Check if Missed (Time passed)
+        // 1. Check if Missed (Time passed beyond recovery)
         if (currentTime > note.startTime + note.duration + HIT_WINDOW) {
             newStatuses.set(index, 'MISS');
             changed = true;
@@ -258,25 +262,33 @@ export function Game({ song, onExit }: GameProps) {
             return;
         }
 
-        // Check for Hit
-        // Window: [startTime - 200, startTime + duration]
-        if (currentTime >= note.startTime - 200 && currentTime <= note.startTime + note.duration) {
-            if (pitch && checkPitch(pitch, note)) {
-                // SCORE!
+        // 2. Check for Hit using Evaluator
+        // We only check if we are within a reasonable range of the note
+        if (currentTime >= note.startTime - EVAL_WINDOW && currentTime <= note.startTime + note.duration) {
+
+            const targetFreq = getFrequencyFromNote(note.noteName, note.octave, note.isQuarterTone);
+            const detectedFreq = pitch ? pitch.frequency : null;
+
+            const result = evaluatorRef.current.evaluate(
+                targetFreq,
+                detectedFreq,
+                note.startTime,
+                currentTime
+            );
+
+            // We only act if the result is a successful hit (PERFECT, GOOD, EARLY, LATE)
+            // We ignore WRONG_NOTE or MISS (due to timing/silence) to allow user to correct themselves
+            // until the timeout logic above kicks in.
+            if (['PERFECT', 'GOOD', 'EARLY', 'LATE'].includes(result.status)) {
                 newStatuses.set(index, 'HIT');
                 changed = true;
                 eventOccurred = true;
 
-                const timing = checkTiming(currentTime, note.startTime);
+                const timing = result.status as 'PERFECT' | 'GOOD' | 'EARLY' | 'LATE';
                 
                 recentHistoryRef.current.push({ type: 'HIT', timing });
 
-                let points = 0;
-                if (timing === 'PERFECT') points = 100;
-                else if (timing === 'GOOD') points = 50;
-                else points = 10; 
-
-                setScore(s => s + points);
+                setScore(s => s + result.scoreDelta);
                 setFeedback(timing);
                 
                 setStats(s => ({
