@@ -10,7 +10,7 @@ import { PerformanceEvaluator } from '../services/PerformanceEvaluator';
 import type { Song } from '../types';
 import { getFrequencyFromNote, toSolfege } from '../utils/pitchUtils';
 
-// --- STYLED COMPONENTS (Aynı kalıyor) ---
+// --- STYLED COMPONENTS ---
 const Container = styled.div` position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, #1e2025 0%, #101113 100%); display: flex; flex-direction: column; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; `;
 const TopBar = styled.div` height: 60px; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,0.1); z-index: 50; `;
 const MainContent = styled.div` flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; width: 100%; `;
@@ -55,13 +55,11 @@ export function Game({ song, initialMode, onExit }: GameProps) {
 
   const isPlaying = gameState === 'PLAYING';
 
-  // --- DÜZELTME BURADA ---
-  // Artık useGameLoop'a gerçek hız çarpanını gönderiyoruz!
-  // Bu sayede currentTime = "Müzikal Zaman" (Hızlandırılmış) olarak geliyor.
-  const { songTime: currentTime } = useGameLoop(isPlaying, speedMultiplier);
+  // Core Game Loop
+  const { songTime } = useGameLoop(isPlaying, speedMultiplier);
 
-  // Audio Player'a da aynı zamanı ve hızı gönderiyoruz
-  useAudioPlayer(song, isPlaying, currentTime, speedMultiplier, metronomeEnabled);
+  // Audio Player
+  useAudioPlayer(song, isPlaying, songTime, speedMultiplier, metronomeEnabled);
   
   const pitch = useAudioInput(isListening && !isListenOnlyMode, simFreq);
   const [score, setScore] = useState(0);
@@ -70,14 +68,13 @@ export function Game({ song, initialMode, onExit }: GameProps) {
   useEffect(() => {
       if (gameState === 'PLAYING') {
           const lastNote = song.notes[song.notes.length - 1];
-          // currentTime zaten müzikal zaman olduğu için ekstra çarpma bölme yok.
           const endTime = lastNote.startTime + lastNote.duration + 1000;
-          if (currentTime > endTime) {
+          if (songTime > endTime) {
               setGameState('FINISHED');
               setIsListening(false);
           }
       }
-  }, [currentTime, gameState, song]);
+  }, [songTime, gameState, song]);
 
   const updateTeacher = () => {
       if (isListenOnlyMode) return;
@@ -117,14 +114,11 @@ export function Game({ song, initialMode, onExit }: GameProps) {
     song.notes.forEach((note, index) => {
         if (newStatuses.has(index)) return;
 
-        // --- DÜZELTME BURADA ---
-        // ARTIK BÖLME YOK!
-        // targetStartTime = note.startTime; (Olduğu gibi kalıyor)
         const targetStartTime = note.startTime;
         const targetEndTime = note.startTime + note.duration;
 
-        // 1. Miss Kontrolü
-        if (currentTime > targetEndTime + HIT_WINDOW) {
+        // 1. Miss Check
+        if (songTime > targetEndTime + HIT_WINDOW) {
             newStatuses.set(index, 'MISS');
             changed = true;
             eventOccurred = true;
@@ -140,8 +134,8 @@ export function Game({ song, initialMode, onExit }: GameProps) {
             return;
         }
 
-        // 2. Vuruş (Hit) Kontrolü
-        if (currentTime >= targetStartTime - EVAL_WINDOW && currentTime <= targetEndTime) {
+        // 2. Hit Check
+        if (songTime >= targetStartTime - EVAL_WINDOW && songTime <= targetEndTime) {
             const targetFreq = getFrequencyFromNote(note.noteName, note.octave, note.isQuarterTone);
             const detectedFreq = pitch ? pitch.frequency : null;
 
@@ -149,7 +143,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
                 targetFreq,
                 detectedFreq,
                 targetStartTime,
-                currentTime
+                songTime
             );
 
             if (['PERFECT', 'GOOD', 'EARLY', 'LATE'].includes(result.status)) {
@@ -180,7 +174,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
 
     if (changed) setNoteStatuses(newStatuses);
     if (eventOccurred) updateTeacher();
-  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo]);
+  }, [songTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo]);
 
   const startGame = () => {
     setGameState('PLAYING');
@@ -236,7 +230,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
         <div style={{position: 'relative', width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
             <StaffCanvas 
                 song={song} 
-                currentTime={currentTime} 
+                currentTime={songTime}
                 detectedNote={pitch ? pitch.noteName : null}
                 noteStatuses={noteStatuses}
                 speedMultiplier={speedMultiplier}
