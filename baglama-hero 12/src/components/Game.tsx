@@ -38,7 +38,6 @@ export function Game({ song, initialMode, onExit }: GameProps) {
   const [simFreq] = useState<number | null>(null);
 
   const [targetBpm, setTargetBpm] = useState(song.bpm);
-  // Hız çarpanı hesaplaması
   const speedMultiplier = targetBpm / song.bpm;
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
 
@@ -57,22 +56,21 @@ export function Game({ song, initialMode, onExit }: GameProps) {
   const isPlaying = gameState === 'PLAYING';
 
   // --- DÜZELTME BURADA ---
-  // Eskiden burası (isPlaying, 1.0) idi. Artık (isPlaying, speedMultiplier)
-  // Artık currentTime "Hızlandırılmış Şarkı Zamanı" olarak geliyor.
+  // Artık useGameLoop'a gerçek hız çarpanını gönderiyoruz!
+  // Bu sayede currentTime = "Müzikal Zaman" (Hızlandırılmış) olarak geliyor.
   const { songTime: currentTime } = useGameLoop(isPlaying, speedMultiplier);
 
-  // Ses oynatıcıya da bu hızı gönderiyoruz
+  // Audio Player'a da aynı zamanı ve hızı gönderiyoruz
   useAudioPlayer(song, isPlaying, currentTime, speedMultiplier, metronomeEnabled);
   
   const pitch = useAudioInput(isListening && !isListenOnlyMode, simFreq);
   const [score, setScore] = useState(0);
   const [feedback, setFeedback] = useState<'PERFECT' | 'GOOD' | 'EARLY' | 'LATE' | 'MISS' | null>(null);
   
-  // Şarkı bitiş kontrolü
   useEffect(() => {
       if (gameState === 'PLAYING') {
           const lastNote = song.notes[song.notes.length - 1];
-          // currentTime zaten hızlı aktığı için tekrar çarpmaya bölmeye gerek yok
+          // currentTime zaten müzikal zaman olduğu için ekstra çarpma bölme yok.
           const endTime = lastNote.startTime + lastNote.duration + 1000;
           if (currentTime > endTime) {
               setGameState('FINISHED');
@@ -120,9 +118,8 @@ export function Game({ song, initialMode, onExit }: GameProps) {
         if (newStatuses.has(index)) return;
 
         // --- DÜZELTME BURADA ---
-        // Eskiden burada note.startTime / speedMultiplier yapıyorduk.
-        // ARTIK YAPMIYORUZ. Çünkü currentTime zaten hızlanmış olarak geliyor.
-        // Doğrudan kıyaslıyoruz.
+        // ARTIK BÖLME YOK!
+        // targetStartTime = note.startTime; (Olduğu gibi kalıyor)
         const targetStartTime = note.startTime;
         const targetEndTime = note.startTime + note.duration;
 
@@ -183,7 +180,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
 
     if (changed) setNoteStatuses(newStatuses);
     if (eventOccurred) updateTeacher();
-  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo]); // speedMultiplier bağımlılığına gerek yok artık
+  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo]);
 
   const startGame = () => {
     setGameState('PLAYING');
