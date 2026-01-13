@@ -8,27 +8,14 @@ function getMidiNote(noteName: string, octave: number, _isQuarterTone?: boolean)
     const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     const baseIndex = notes.indexOf(noteName);
     if (baseIndex === -1) return 0;
-
     // MIDI Note: C4 = 60
-    // C0 = 12
-    let midi = 12 + (octave * 12) + baseIndex;
-
-    // Quarter tones logic:
-    // In standard MIDI, we can't do quarter tones easily without pitch bend or tuning.
-    // For now, we map quarter tones to the nearest semitone or keep it natural?
-    // User requested SF2 support. Baglama SF2s usually have specific mapping or we pitch bend.
-    // Or maybe the SF2 has samples for quarter tones?
-    // If the note is "quarter tone" (e.g. E half flat), usually it is between E and Eb.
-    // For this implementation, we will ignore quarter tone pitch bending unless we want to implement pitch bend messages.
-    // Given the constraints and "complete overhaul", let's try to do it right if possible, but basic mapping first.
-
-    return midi;
+    return 12 + (octave * 12) + baseIndex;
 }
 
 export function useAudioPlayer(
     song: Song,
     isPlaying: boolean,
-    currentTime: number, // Song Time (accumulated)
+    currentTime: number, // Song Time (accumulated ms)
     speedMultiplier: number = 1.0,
     metronomeEnabled: boolean = false
 ) {
@@ -39,130 +26,113 @@ export function useAudioPlayer(
   const sf2PlayerRef = useRef<SF2PlayerService>(SF2PlayerService.getInstance());
   const [sf2Ready, setSf2Ready] = useState(false);
 
+  // --- METRONOME SESİ (GÜÇLENDİRİLDİ) ---
   const playClick = useCallback(() => {
     if (!audioContextRef.current || !masterGainRef.current) return;
     const ctx = audioContextRef.current;
     const time = ctx.currentTime;
 
-    // Metronome: Louder Woodblock
-    // Woodblock synthesis: High pitch sine/triangle with very short decay
+    // Daha net duyulan "WOODBLOCK" tarzı ses
     const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(800, time);
-    osc.frequency.exponentialRampToValueAtTime(1200, time + 0.01); // Chirp
+    osc.type = 'square'; // Sine yerine Square (Daha keskin duyulur)
+    osc.frequency.setValueAtTime(1000, time);
+    osc.frequency.exponentialRampToValueAtTime(600, time + 0.05);
 
     const gain = ctx.createGain();
+    // Ses seviyesini artırdım (0.8 -> 1.0)
     gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(0.8, time + 0.005); // Attack
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1); // Decay
+    gain.gain.linearRampToValueAtTime(1.0, time + 0.001); 
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
 
     osc.connect(gain);
     gain.connect(masterGainRef.current);
     
     osc.start(time);
-    osc.stop(time + 0.1);
+    osc.stop(time + 0.06);
   }, []);
 
+  // --- NOTA ÇALMA ---
   const playNote = useCallback((note: NoteData) => {
     if (!audioContextRef.current || !masterGainRef.current) return;
     const ctx = audioContextRef.current;
     
-    // Duration Logic
-    // note.duration is in ms.
-    // If speed is 2x, duration should be half in real time?
-    // Yes. Playback duration = note.duration / speedMultiplier.
-    // However, for SF2, we play the sample.
+    // Duration Logic: Hıza göre süreyi kısalt
+    // Çakışmayı önlemek için hafif bir tolerans (-0.05) ekleyebiliriz ama şimdilik matematiksel duralım.
     const durationSec = (note.duration / 1000) / speedMultiplier;
 
     if (sf2PlayerRef.current.isAvailable()) {
         const midi = getMidiNote(note.noteName, note.octave, note.isQuarterTone);
-        // Play via SF2
         sf2PlayerRef.current.playNote(midi, 100, durationSec, ctx.currentTime);
         return;
     }
 
-    // Fallback Oscillator
+    // Fallback Oscillator (SF2 yoksa çalışır)
     const freq = getFrequencyFromNote(note.noteName, note.octave, note.isQuarterTone);
     const time = ctx.currentTime;
 
-    // Baglama Synthesis (Old Logic)
     const osc1 = ctx.createOscillator();
-    osc1.type = 'sawtooth';
+    osc1.type = 'sawtooth'; // Bağlama tınısına daha yakın
     osc1.frequency.setValueAtTime(freq, time);
-
-    const osc2 = ctx.createOscillator();
-    osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(freq, time);
-    osc2.detune.value = 3;
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.Q.value = 3;
-    filter.frequency.setValueAtTime(4000, time);
-    filter.frequency.exponentialRampToValueAtTime(freq, time + 0.15);
 
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(0.4, time + 0.005);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 2.0);
+    gain.gain.linearRampToValueAtTime(0.3, time + 0.01); // Attack
+    // Decay süresini kısalttım, notalar birbirine girmesin
+    gain.gain.exponentialRampToValueAtTime(0.001, time + durationSec); 
 
-    osc1.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain);
+    osc1.connect(gain);
     gain.connect(masterGainRef.current);
 
     osc1.start(time);
-    osc2.start(time);
-    osc1.stop(time + durationSec + 1.0);
-    osc2.stop(time + durationSec + 1.0);
-
+    osc1.stop(time + durationSec + 0.1);
   }, [speedMultiplier, sf2Ready]);
 
-  // Initialization
+  // --- BAŞLATMA VE CONTEXT ---
   useEffect(() => {
     if (isPlaying && !audioContextRef.current) {
         const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         audioContextRef.current = new AudioContextClass();
         masterGainRef.current = audioContextRef.current.createGain();
-        masterGainRef.current.gain.value = 0.5; // Slightly louder
+        masterGainRef.current.gain.value = 0.8; // Genel ses seviyesi
         masterGainRef.current.connect(audioContextRef.current.destination);
 
-        // Resume context if needed (browsers block autoplay)
         if (audioContextRef.current.state === 'suspended') {
             audioContextRef.current.resume();
         }
 
-        // Init SF2
         sf2PlayerRef.current.initialize(audioContextRef.current).then(success => {
             setSf2Ready(success);
         });
     }
   }, [isPlaying]);
 
-  // Playback Loop
+  // --- OYNATMA DÖNGÜSÜ ---
   useEffect(() => {
     if (!isPlaying) {
-        lastPlayedNoteIndexRef.current = -1;
-        lastBeatRef.current = -1;
+        // Durduğunda sayaçları sıfırlama, devam etsin diye olduğu yerde bırakıyoruz
+        // Ama şarkı başa sarılırsa bu dışarıdan kontrol edilmeli.
+        // Şimdilik sadece durunca çalmayı kesiyoruz.
         return;
     }
-
     if (!audioContextRef.current) return;
 
     // 1. Note Playback
+    // Eğer currentTime geriye gittiyse (seek yapıldıysa) indexi resetle
+    // Basit bir optimizasyon:
+    if (lastPlayedNoteIndexRef.current >= 0 && song.notes[lastPlayedNoteIndexRef.current].startTime > currentTime) {
+       lastPlayedNoteIndexRef.current = -1;
+    }
+
     let checkIndex = lastPlayedNoteIndexRef.current + 1;
     while (checkIndex < song.notes.length) {
         const note = song.notes[checkIndex];
-
-        // Note: note.startTime is in SONG TIME (ms)
-        // currentTime is current SONG TIME (ms)
-
-        // With delta time accumulation, currentTime is accurate to song position.
-        // We trigger if we are at or past the note time.
-        // To avoid double triggering or missing, we track index.
-
+        
+        // Tolerans penceresi: Eğer visual lag varsa notayı kaçırmayalım
         if (currentTime >= note.startTime) {
-             playNote(note);
+             // Çok eski notaları çalma (örn: 100ms'den eski)
+             if (currentTime - note.startTime < 200) {
+                 playNote(note);
+             }
              lastPlayedNoteIndexRef.current = checkIndex;
              checkIndex++;
         } else {
@@ -170,22 +140,21 @@ export function useAudioPlayer(
         }
     }
 
-    // 2. Metronome
+    // 2. Metronome Logic (DÜZELTİLDİ)
     if (metronomeEnabled) {
-        // Beats based on song time
-        // Song Bpm is constant.
-        // We just track beats based on currentTime (Song Time).
-
-        const msPerBeat = 60000 / song.bpm;
-        const currentBeat = Math.floor(currentTime / msPerBeat);
+        // HIZ ÇARPANI ARTIK HESABA KATILIYOR!
+        // effectiveBpm = song.bpm * speedMultiplier
+        const effectiveBpm = song.bpm * speedMultiplier;
+        const msPerBeat = 60000 / effectiveBpm;
         
+        const currentBeat = Math.floor(currentTime / msPerBeat);
+                
         if (currentBeat > lastBeatRef.current) {
-            // Only play if we are moving forward and it's a new beat
             if (currentBeat >= 0) {
                  playClick();
             }
             lastBeatRef.current = currentBeat;
         }
     }
-  }, [currentTime, isPlaying, song, playNote, metronomeEnabled, playClick]);
+  }, [currentTime, isPlaying, song, playNote, metronomeEnabled, playClick, speedMultiplier]); // speedMultiplier eklendi!
 }
