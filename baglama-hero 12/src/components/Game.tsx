@@ -10,13 +10,8 @@ import { PerformanceEvaluator } from '../services/PerformanceEvaluator';
 import type { Song } from '../types';
 import { getFrequencyFromNote, toSolfege } from '../utils/pitchUtils';
 
-// ... Styled Components (Keep them as they are, assume they exist) ...
-const Container = styled.div`
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: linear-gradient(135deg, #1e2025 0%, #101113 100%);
-  display: flex; flex-direction: column; color: white;
-  font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none;
-`;
+// --- STYLED COMPONENTS (Aynı kalıyor) ---
+const Container = styled.div` position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, #1e2025 0%, #101113 100%); display: flex; flex-direction: column; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; `;
 const TopBar = styled.div` height: 60px; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,0.1); z-index: 50; `;
 const MainContent = styled.div` flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; width: 100%; `;
 const PitchDisplay = styled.div` font-size: 1.2rem; font-weight: 600; color: #ccc; `;
@@ -43,6 +38,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
   const [simFreq] = useState<number | null>(null);
 
   const [targetBpm, setTargetBpm] = useState(song.bpm);
+  // Hız çarpanı hesaplaması
   const speedMultiplier = targetBpm / song.bpm;
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
 
@@ -60,20 +56,23 @@ export function Game({ song, initialMode, onExit }: GameProps) {
 
   const isPlaying = gameState === 'PLAYING';
 
-  // CORRECT: Pass the speedMultiplier! currentTime will be SONG TIME.
+  // --- DÜZELTME BURADA ---
+  // Eskiden burası (isPlaying, 1.0) idi. Artık (isPlaying, speedMultiplier)
+  // Artık currentTime "Hızlandırılmış Şarkı Zamanı" olarak geliyor.
   const { songTime: currentTime } = useGameLoop(isPlaying, speedMultiplier);
 
-  // Audio Player
+  // Ses oynatıcıya da bu hızı gönderiyoruz
   useAudioPlayer(song, isPlaying, currentTime, speedMultiplier, metronomeEnabled);
   
   const pitch = useAudioInput(isListening && !isListenOnlyMode, simFreq);
   const [score, setScore] = useState(0);
   const [feedback, setFeedback] = useState<'PERFECT' | 'GOOD' | 'EARLY' | 'LATE' | 'MISS' | null>(null);
   
+  // Şarkı bitiş kontrolü
   useEffect(() => {
       if (gameState === 'PLAYING') {
           const lastNote = song.notes[song.notes.length - 1];
-          // Simple check since currentTime matches Song Time
+          // currentTime zaten hızlı aktığı için tekrar çarpmaya bölmeye gerek yok
           const endTime = lastNote.startTime + lastNote.duration + 1000;
           if (currentTime > endTime) {
               setGameState('FINISHED');
@@ -110,9 +109,8 @@ export function Game({ song, initialMode, onExit }: GameProps) {
     if (gameState !== 'PLAYING') return;
     if (isListenOnlyMode) return;
 
-    // Windows in Song Time (if speed is 2x, these windows naturally feel faster)
-    const HIT_WINDOW = 200;
-    const EVAL_WINDOW = 500;
+    const HIT_WINDOW = 200; 
+    const EVAL_WINDOW = 500; 
     
     const newStatuses = new Map(noteStatuses);
     let changed = false;
@@ -121,11 +119,14 @@ export function Game({ song, initialMode, onExit }: GameProps) {
     song.notes.forEach((note, index) => {
         if (newStatuses.has(index)) return;
 
-        // CORRECT: No manual division! Compare Song Time to Note Time.
+        // --- DÜZELTME BURADA ---
+        // Eskiden burada note.startTime / speedMultiplier yapıyorduk.
+        // ARTIK YAPMIYORUZ. Çünkü currentTime zaten hızlanmış olarak geliyor.
+        // Doğrudan kıyaslıyoruz.
         const targetStartTime = note.startTime;
         const targetEndTime = note.startTime + note.duration;
 
-        // 1. Check if Missed
+        // 1. Miss Kontrolü
         if (currentTime > targetEndTime + HIT_WINDOW) {
             newStatuses.set(index, 'MISS');
             changed = true;
@@ -142,7 +143,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
             return;
         }
 
-        // 2. Check for Hit
+        // 2. Vuruş (Hit) Kontrolü
         if (currentTime >= targetStartTime - EVAL_WINDOW && currentTime <= targetEndTime) {
             const targetFreq = getFrequencyFromNote(note.noteName, note.octave, note.isQuarterTone);
             const detectedFreq = pitch ? pitch.frequency : null;
@@ -182,7 +183,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
 
     if (changed) setNoteStatuses(newStatuses);
     if (eventOccurred) updateTeacher();
-  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo]);
+  }, [currentTime, pitch, gameState, noteStatuses, song, isListenOnlyMode, combo]); // speedMultiplier bağımlılığına gerek yok artık
 
   const startGame = () => {
     setGameState('PLAYING');
