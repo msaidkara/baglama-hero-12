@@ -4,7 +4,7 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
   const [songTime, setSongTime] = useState(0);
   const accumulatedTimeRef = useRef(0);
   const lastFrameTimeRef = useRef<number | null>(null);
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number | null>(null);
   const speedRef = useRef(speedMultiplier);
 
   useEffect(() => { speedRef.current = speedMultiplier; }, [speedMultiplier]);

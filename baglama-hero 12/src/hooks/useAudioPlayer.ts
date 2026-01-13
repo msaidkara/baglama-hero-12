@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { type Song, type NoteData } from '../types';
 import SF2PlayerService from '../services/SF2PlayerService';
 import { getFrequencyFromNote } from '../utils/pitchUtils';
