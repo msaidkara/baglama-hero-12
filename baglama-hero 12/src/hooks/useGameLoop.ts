@@ -35,7 +35,11 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
       const delta = timestamp - lastFrameTimeRef.current;
       lastFrameTimeRef.current = timestamp;
 
+      // Cap delta to prevent huge jumps if tab is inactive
       const safeDelta = Math.min(delta, 100); 
+
+      // CRITICAL: Accumulate time based on current speed.
+      // If speed is 2.0, 10ms real time becomes 20ms song time.
       accumulatedTimeRef.current += safeDelta * speedRef.current;
       
       setSongTime(accumulatedTimeRef.current);
