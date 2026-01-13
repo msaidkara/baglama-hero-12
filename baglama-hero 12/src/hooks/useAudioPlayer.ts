@@ -24,21 +24,20 @@ export function useAudioPlayer(
   const sf2PlayerRef = useRef<SF2PlayerService>(SF2PlayerService.getInstance());
   const [sf2Ready, setSf2Ready] = useState(false);
 
-  // --- NEW SOFT METRONOME ---
+  // --- METRONOM (Tok Ses) ---
   const playClick = useCallback(() => {
     if (!audioContextRef.current || !masterGainRef.current) return;
     const ctx = audioContextRef.current;
     const time = ctx.currentTime;
 
-    // Woodblock sound (High sine wave with instant decay)
     const osc = ctx.createOscillator();
-    osc.type = 'sine';
+    osc.type = 'sine'; 
     osc.frequency.setValueAtTime(800, time);
     osc.frequency.exponentialRampToValueAtTime(100, time + 0.05);
 
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(0.5, time + 0.005);
+    gain.gain.linearRampToValueAtTime(0.5, time + 0.005); 
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
 
     osc.connect(gain);
@@ -48,24 +47,26 @@ export function useAudioPlayer(
     osc.stop(time + 0.06);
   }, []);
 
+  // --- NOTA ÇALMA ---
   const playNote = useCallback((note: NoteData) => {
     if (!audioContextRef.current || !masterGainRef.current) return;
     const ctx = audioContextRef.current;
     
-    // Scale duration by speed
+    // Süreyi hıza bölüyoruz (Hız artarsa nota kısalır)
     const durationSec = (note.duration / 1000) / speedMultiplier;
 
     if (sf2PlayerRef.current.isAvailable()) {
         const midi = getMidiNote(note.noteName, note.octave, note.isQuarterTone);
+        // volume 100 olarak ayarlandı
         sf2PlayerRef.current.playNote(midi, 100, durationSec, ctx.currentTime);
         return;
     }
 
-    // Fallback (The Robotic Sound - only plays if SF2 fails)
+    // Fallback (SF2 yoksa çalacak robot sesi - biraz yumuşattım)
     const freq = getFrequencyFromNote(note.noteName, note.octave, note.isQuarterTone);
     const time = ctx.currentTime;
     const osc1 = ctx.createOscillator();
-    osc1.type = 'triangle'; // Softer than sawtooth
+    osc1.type = 'triangle'; 
     osc1.frequency.setValueAtTime(freq, time);
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0, time);
@@ -85,11 +86,10 @@ export function useAudioPlayer(
         masterGainRef.current.gain.value = 0.8;
         masterGainRef.current.connect(audioContextRef.current.destination);
         if (audioContextRef.current.state === 'suspended') { audioContextRef.current.resume(); }
-
-        // ATTEMPT TO LOAD SF2 - Check your console for logs!
-        console.log("Initializing SF2 Player...");
+        
+        // SF2 Yükleme Kontrolü
         sf2PlayerRef.current.initialize(audioContextRef.current).then(success => {
-            console.log("SF2 Init Result:", success ? "SUCCESS" : "FAILED");
+            console.log("Bağlama Sesi Yüklendi mi?", success ? "EVET" : "HAYIR - Dosya Bulunamadı");
             setSf2Ready(success);
         });
     }
@@ -98,7 +98,7 @@ export function useAudioPlayer(
   useEffect(() => {
     if (!isPlaying || !audioContextRef.current) return;
 
-    // Reset index on seek backward
+    // Geri sarma (Seek) yapıldıysa indeksi düzelt
     if (lastPlayedNoteIndexRef.current >= 0 && song.notes[lastPlayedNoteIndexRef.current].startTime > currentTime) {
        lastPlayedNoteIndexRef.current = -1;
     }
@@ -106,9 +106,11 @@ export function useAudioPlayer(
     let checkIndex = lastPlayedNoteIndexRef.current + 1;
     while (checkIndex < song.notes.length) {
         const note = song.notes[checkIndex];
+        
+        // currentTime zaten HIZLANMIŞ ZAMAN (Song Time).
+        // O yüzden doğrudan karşılaştırıyoruz.
         if (currentTime >= note.startTime) {
-             // Play if within 250ms window
-             if (currentTime - note.startTime < 250) {
+             if (currentTime - note.startTime < 250) { 
                  playNote(note);
              }
              lastPlayedNoteIndexRef.current = checkIndex;
@@ -119,7 +121,8 @@ export function useAudioPlayer(
     }
 
     if (metronomeEnabled) {
-        // Since currentTime is already accelerated (Song Time), we use standard BPM
+        // currentTime hızlanmış olduğu için, BPM'i tekrar çarpmıyoruz!
+        // Sabit BPM ile hesaplıyoruz, çünkü zaman zaten hızlı akıyor.
         const msPerBeat = 60000 / song.bpm;
         const currentBeat = Math.floor(currentTime / msPerBeat);
         if (currentBeat > lastBeatRef.current) {
