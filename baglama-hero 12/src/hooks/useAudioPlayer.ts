@@ -13,7 +13,7 @@ function getMidiNote(noteName: string, octave: number, _isQuarterTone?: boolean)
 export function useAudioPlayer(
     song: Song,
     isPlaying: boolean,
-    currentTime: number,
+    currentTime: number, // This is now SONG TIME (Accelerated)
     speedMultiplier: number = 1.0,
     metronomeEnabled: boolean = false
 ) {
@@ -50,6 +50,7 @@ export function useAudioPlayer(
     if (!audioContextRef.current || !masterGainRef.current) return;
     const ctx = audioContextRef.current;
     
+    // Duration is shorter when speed is higher
     const durationSec = (note.duration / 1000) / speedMultiplier;
 
     if (sf2PlayerRef.current.isAvailable()) {
@@ -90,6 +91,7 @@ export function useAudioPlayer(
   useEffect(() => {
     if (!isPlaying || !audioContextRef.current) return;
 
+    // Reset index if we seeked backwards
     if (lastPlayedNoteIndexRef.current >= 0 && song.notes[lastPlayedNoteIndexRef.current].startTime > currentTime) {
        lastPlayedNoteIndexRef.current = -1;
     }
@@ -97,6 +99,7 @@ export function useAudioPlayer(
     let checkIndex = lastPlayedNoteIndexRef.current + 1;
     while (checkIndex < song.notes.length) {
         const note = song.notes[checkIndex];
+        // Since currentTime is accelerated, we compare directly to note.startTime
         if (currentTime >= note.startTime) {
              if (currentTime - note.startTime < 250) {
                  playNote(note);
@@ -109,8 +112,9 @@ export function useAudioPlayer(
     }
 
     if (metronomeEnabled) {
-        const effectiveBpm = song.bpm * speedMultiplier;
-        const msPerBeat = 60000 / effectiveBpm;
+        // Since currentTime is already accelerated (Song Time), we use standard BPM
+        // The time itself moves faster, so the beats trigger faster naturally.
+        const msPerBeat = 60000 / song.bpm;
         const currentBeat = Math.floor(currentTime / msPerBeat);
         if (currentBeat > lastBeatRef.current) {
             if (currentBeat >= 0) playClick();
