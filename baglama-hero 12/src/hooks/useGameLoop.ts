@@ -3,15 +3,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
   const [songTime, setSongTime] = useState(0);
   
-  // Referanslar (Render tetiklemeyen hafıza)
   const requestRef = useRef<number | undefined>(undefined);
   const lastFrameTimeRef = useRef<number | null>(null);
   const accumulatedTimeRef = useRef<number>(0);
   
-  // Hız değerini ref içinde tutuyoruz ki useEffect'i resetlemesin
+  // Hız değişimini anında yakalamak için ref kullanıyoruz
   const speedRef = useRef(speedMultiplier);
 
-  // Hız değiştiğinde SADECE ref'i güncelle, motoru durdurma
   useEffect(() => {
     speedRef.current = speedMultiplier;
   }, [speedMultiplier]);
@@ -22,7 +20,6 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
   }, []);
 
   useEffect(() => {
-    // Eğer çalmıyorsa döngüyü durdur ama zamanı sıfırlama
     if (!isPlaying) {
       lastFrameTimeRef.current = null;
       if (requestRef.current) {
@@ -40,12 +37,12 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
       const delta = timestamp - lastFrameTimeRef.current;
       lastFrameTimeRef.current = timestamp;
 
-      // Tarayıcı sekmesi değişirse devasa atlamaları önlemek için güvenlik (max 100ms)
+      // Sekme değişimi vs. gibi durumlarda devasa atlamaları önle
       const safeDelta = Math.min(delta, 100); 
       
-      // İŞTE ÇÖZÜM BURASI:
-      // Geçen süreyi o anki hızla çarpıp KUMBARAYA ekliyoruz.
-      // Hız düşerse kumbara küçülmez, sadece daha yavaş dolar.
+      // KRİTİK NOKTA: Geçen süreyi o anki hızla çarpıp topluyoruz.
+      // Matematiksel formül değil, fiziksel birikim yapıyoruz.
+      // Bu sayede hızı düşürsen bile "toplanmış zaman" azalmıyor.
       accumulatedTimeRef.current += safeDelta * speedRef.current;
       
       setSongTime(accumulatedTimeRef.current);
@@ -58,7 +55,7 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isPlaying]); // DİKKAT: speedMultiplier buraya eklenmemeli!
+  }, [isPlaying]); 
 
   return { songTime, setSongTime: setTimeManually };
 }
