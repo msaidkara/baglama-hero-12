@@ -1,18 +1,31 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
   const [songTime, setSongTime] = useState(0);
-  const lastFrameTimeRef = useRef<number | null>(null);
+  
+  // Referanslar (Değerler değişse bile render tetiklemez)
   const requestRef = useRef<number | undefined>(undefined);
+  const lastFrameTimeRef = useRef<number | null>(null);
   const accumulatedTimeRef = useRef<number>(0);
+  
+  // Hız çarpanını ref içinde tutuyoruz. 
+  // Böylece hız değiştiğinde useEffect'i bozup baştan başlatmak zorunda kalmıyoruz.
+  const speedRef = useRef(speedMultiplier);
 
-  // Allow resetting time (for seeking or restart)
-  // But currently we just reset on Stop.
+  // Hız değişince sadece ref'i güncelle, döngüyü bozma
+  useEffect(() => {
+    speedRef.current = speedMultiplier;
+  }, [speedMultiplier]);
+
+  // Zamanı dışarıdan değiştirmek için (İleride Seek Bar yaparsan lazım olacak)
+  const setTimeManually = useCallback((time: number) => {
+    accumulatedTimeRef.current = time;
+    setSongTime(time);
+  }, []);
 
   useEffect(() => {
+    // Eğer çalmıyorsa döngüyü başlatma ama zamanı da SIFIRLAMA (Pause özelliği için)
     if (!isPlaying) {
-      accumulatedTimeRef.current = 0;
-      setSongTime(0);
       lastFrameTimeRef.current = null;
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
@@ -23,15 +36,18 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
 
     const loop = (timestamp: number) => {
       if (lastFrameTimeRef.current === null) {
-          lastFrameTimeRef.current = timestamp;
+        lastFrameTimeRef.current = timestamp;
       }
       
       const delta = timestamp - lastFrameTimeRef.current;
       lastFrameTimeRef.current = timestamp;
 
-      // DELTA TIME ACCUMULATION LOGIC (Fixing Seek/Jump on Speed Change)
-      // Time += (Real Delta * Speed)
-      accumulatedTimeRef.current += delta * speedMultiplier;
+      // DELTA TIME ACCUMULATION (DÜZELTİLDİ)
+      // Artık hızı ref'ten okuyoruz, bu sayede akış kesilmiyor.
+      // Math.min ile devasa atlamaları (tab değişimi vs) engelliyoruz.
+      const safeDelta = Math.min(delta, 100); 
+      
+      accumulatedTimeRef.current += safeDelta * speedRef.current;
       
       setSongTime(accumulatedTimeRef.current);
 
@@ -43,39 +59,8 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isPlaying, speedMultiplier]); // Re-run if speed changes?
-  
-  // Note: If speed changes, we don't want to reset accumulatedTimeRef!
-  // But the effect dependencies include speedMultiplier.
-  // If the effect re-runs, it will define a new loop function closing over new speed.
-  // accumulatedTimeRef persists across re-renders because it's a ref.
-  // HOWEVER: lastFrameTimeRef is set to null in the effect cleanup? No, only local var?
-  // No, `lastFrameTimeRef` is a ref.
-  // We need to be careful not to jump time when effect restarts.
-  // If effect restarts:
-  // 1. cleanup runs -> cancel animation frame.
-  // 2. new effect runs -> request animation frame.
-  // 3. inside loop: `lastFrameTimeRef.current` might be old timestamp?
-  //    If we use `lastFrameTimeRef.current = null` on start, we get delta=0 for first frame. Correct.
-  //    So we should set `lastFrameTimeRef.current = null` inside the effect setup?
+  }, [isPlaying]); // DİKKAT: speedMultiplier artık dependency değil!
 
-  // Let's refine the effect to handle speed changes smoothly.
-
-  /*
-    Effect [isPlaying] -> Handles Start/Stop.
-    Effect [speedMultiplier] -> Should NOT reset time.
-
-    Actually, we can put everything in one effect.
-    When speed changes, the effect re-runs.
-    We just need to make sure we don't reset `accumulatedTimeRef`. (We don't, it's a ref).
-    We need to make sure `lastFrameTimeRef` is reset so we don't calculate a huge delta from the last timestamp of the previous effect instance (which was ms ago).
-
-    So:
-    setup() {
-      lastFrameTimeRef.current = null; // Important! Start fresh delta calculation.
-      requestAnimationFrame...
-    }
-  */
-
-  return songTime;
+  // Dışarıya hem zamanı hem de manuel zaman ayarlama fonksiyonunu veriyoruz
+  return { songTime, setSongTime: setTimeManually };
 }
