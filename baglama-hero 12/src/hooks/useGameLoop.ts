@@ -6,6 +6,8 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
   const requestRef = useRef<number | undefined>(undefined);
   const lastFrameTimeRef = useRef<number | null>(null);
   const accumulatedTimeRef = useRef<number>(0);
+
+  // Store speed in ref to access inside loop without restarting it
   const speedRef = useRef(speedMultiplier);
 
   useEffect(() => {
@@ -35,11 +37,11 @@ export function useGameLoop(isPlaying: boolean, speedMultiplier: number = 1.0) {
       const delta = timestamp - lastFrameTimeRef.current;
       lastFrameTimeRef.current = timestamp;
 
-      // Cap delta to prevent huge jumps if tab is inactive
+      // Protection against tab switching jumps (max 100ms)
       const safeDelta = Math.min(delta, 100); 
 
-      // CRITICAL: Accumulate time based on current speed.
-      // If speed is 2.0, 10ms real time becomes 20ms song time.
+      // THE FIX: Add (Delta * Speed) to the pile.
+      // This prevents time from jumping back when speed decreases.
       accumulatedTimeRef.current += safeDelta * speedRef.current;
       
       setSongTime(accumulatedTimeRef.current);
