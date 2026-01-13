@@ -12,7 +12,29 @@ import { getFrequencyFromNote, toSolfege } from '../utils/pitchUtils';
 
 // --- STYLED COMPONENTS ---
 const Container = styled.div` position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, #1e2025 0%, #101113 100%); display: flex; flex-direction: column; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; `;
-const TopBar = styled.div` height: 60px; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,0.1); z-index: 50; `;
+
+const TopBar = styled.div`
+    height: 60px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    z-index: 50;
+
+    @media (max-width: 768px) {
+        overflow-x: auto;
+        gap: 10px;
+        /* Hide scrollbar */
+        &::-webkit-scrollbar { display: none; }
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+        padding: 0 10px;
+    }
+`;
+
 const MainContent = styled.div` flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; width: 100%; `;
 const PitchDisplay = styled.div` font-size: 1.2rem; font-weight: 600; color: #ccc; `;
 const ScoreContainer = styled.div` display: flex; flex-direction: column; align-items: flex-end; `;
@@ -22,8 +44,25 @@ const fireAnim = keyframes` 0% { text-shadow: 0 0 10px #ff0000; color: #ffcc00; 
 const ComboDisplay = styled.div<{ $isFire: boolean }>` font-size: 1.5rem; font-weight: 800; color: ${props => props.$isFire ? '#ffcc00' : '#aaa'}; animation: ${props => props.$isFire ? css`${pulse} 0.5s infinite, ${fireAnim} 1s infinite` : 'none'}; transition: all 0.2s; `;
 const Button = styled.button<{ secondary?: boolean }>` padding: 15px 40px; font-size: 1.4rem; background: ${props => props.secondary ? 'rgba(255,255,255,0.1)' : 'linear-gradient(90deg, #61dafb 0%, #21a1f1 100%)'}; border: ${props => props.secondary ? '1px solid rgba(255,255,255,0.3)' : 'none'}; border-radius: 30px; cursor: pointer; color: white; font-weight: bold; box-shadow: ${props => props.secondary ? 'none' : '0 4px 15px rgba(33, 161, 241, 0.4)'}; transition: transform 0.2s; &:active { transform: scale(0.95); } &:hover { background: ${props => props.secondary ? 'rgba(255,255,255,0.2)' : 'linear-gradient(90deg, #61dafb 0%, #21a1f1 100%)'}; } `;
 const IconButton = styled.button` background: none; border: 1px solid rgba(255,255,255,0.2); color: white; padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; cursor: pointer; &:hover { background: rgba(255,255,255,0.1); } `;
-const ControlGroup = styled.div` display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,0.3); padding: 5px 15px; border-radius: 20px; `;
-const FeedbackText = styled.div<{ type: string | null }>` position: absolute; top: 150px; font-size: 4rem; font-weight: 900; text-shadow: 0 0 10px black; color: ${props => { switch(props.type) { case 'PERFECT': return '#00ff00'; case 'GOOD': return '#ccff00'; case 'EARLY': return '#ffff00'; case 'LATE': return '#ff9900'; case 'MISS': return '#ff0000'; default: return 'white'; } }}; opacity: ${props => props.type ? 1 : 0}; transform: ${props => props.type ? 'scale(1.2)' : 'scale(1)'}; transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: none; z-index: 100; `;
+const ControlGroup = styled.div` display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,0.3); padding: 5px 15px; border-radius: 20px; flex-shrink: 0; `;
+const FeedbackText = styled.div<{ type: string | null }>`
+    position: absolute;
+    top: 150px;
+    font-size: 4rem;
+    font-weight: 900;
+    text-shadow: 0 0 10px black;
+    color: ${props => { switch(props.type) { case 'PERFECT': return '#00ff00'; case 'GOOD': return '#ccff00'; case 'EARLY': return '#ffff00'; case 'LATE': return '#ff9900'; case 'MISS': return '#ff0000'; default: return 'white'; } }};
+    opacity: ${props => props.type ? 1 : 0};
+    transform: ${props => props.type ? 'scale(1.2)' : 'scale(1)'};
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: none;
+    z-index: 100;
+
+    @media (max-width: 768px) {
+        font-size: 2.5rem;
+        top: 100px;
+    }
+`;
 
 interface GameProps {
     song: Song;
@@ -193,10 +232,18 @@ export function Game({ song, initialMode, onExit }: GameProps) {
     setTeacherState({ message: null, mood: 'neutral' });
   };
 
+  const restartGame = () => {
+    stopGame();
+    // Use setTimeout to ensure state is cleared before starting again (optional but safer)
+    setTimeout(() => {
+        startGame();
+    }, 0);
+  };
+
   return (
     <Container>
       <TopBar>
-         <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
+         <div style={{display: 'flex', alignItems: 'center', gap: '15px', flexShrink: 0}}>
              <IconButton onClick={onExit}>← Menu</IconButton>
              <div style={{display: 'flex', flexDirection: 'column'}}>
                 <div style={{fontWeight: 'bold'}}>
@@ -219,7 +266,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
              </ScoreContainer>
          )}
          <div style={{width: '20px'}} />
-         <div style={{display: 'flex', gap: '10px'}}>
+         <div style={{display: 'flex', gap: '10px', flexShrink: 0}}>
              <IconButton onClick={() => setMetronomeEnabled(!metronomeEnabled)} style={{
                  background: metronomeEnabled ? 'rgba(33, 161, 241, 0.3)' : 'transparent',
                  border: metronomeEnabled ? '1px solid #21a1f1' : '1px solid rgba(255,255,255,0.2)'
@@ -245,7 +292,12 @@ export function Game({ song, initialMode, onExit }: GameProps) {
                     {!isListenOnlyMode && (<div style={{background: 'rgba(0,0,0,0.5)', padding: '10px', borderRadius: '10px', fontSize: '0.9rem'}}>Tip: Use headphones for best results</div>)}
                 </div>
             )}
-            {isPlaying && (<div style={{position: 'absolute', top: 20, right: 20, zIndex: 20}}><IconButton onClick={stopGame} style={{background: 'rgba(255,0,0,0.3)'}}>Stop</IconButton></div>)}
+            {isPlaying && (
+                <div style={{position: 'absolute', top: 20, right: 20, zIndex: 20, display: 'flex', gap: '10px'}}>
+                    <IconButton onClick={restartGame} style={{background: 'rgba(255,255,255,0.1)'}}>Restart</IconButton>
+                    <IconButton onClick={stopGame} style={{background: 'rgba(255,0,0,0.3)'}}>Stop</IconButton>
+                </div>
+            )}
             {gameState === 'FINISHED' && (<SummaryScreen score={score} totalNotes={stats.hits + stats.misses} hits={stats.hits} misses={stats.misses} early={stats.early} late={stats.late} perfect={stats.perfect} missedNotesMap={stats.missedNotesMap} onRestart={stopGame} />)}
         </div>
         <div style={{height: '60px', width: '100%', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
