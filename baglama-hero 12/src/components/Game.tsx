@@ -23,7 +23,31 @@ const ComboDisplay = styled.div<{ $isFire: boolean }>` font-size: 1.5rem; font-w
 const Button = styled.button<{ secondary?: boolean }>` padding: 15px 40px; font-size: 1.4rem; background: ${props => props.secondary ? 'rgba(255,255,255,0.1)' : 'linear-gradient(90deg, #61dafb 0%, #21a1f1 100%)'}; border: ${props => props.secondary ? '1px solid rgba(255,255,255,0.3)' : 'none'}; border-radius: 30px; cursor: pointer; color: white; font-weight: bold; box-shadow: ${props => props.secondary ? 'none' : '0 4px 15px rgba(33, 161, 241, 0.4)'}; transition: transform 0.2s; &:active { transform: scale(0.95); } &:hover { background: ${props => props.secondary ? 'rgba(255,255,255,0.2)' : 'linear-gradient(90deg, #61dafb 0%, #21a1f1 100%)'}; } `;
 const IconButton = styled.button` background: none; border: 1px solid rgba(255,255,255,0.2); color: white; padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; cursor: pointer; &:hover { background: rgba(255,255,255,0.1); } `;
 const ControlGroup = styled.div` display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,0.3); padding: 5px 15px; border-radius: 20px; `;
-const FeedbackText = styled.div<{ type: string | null }>` position: absolute; top: 150px; font-size: 4rem; font-weight: 900; text-shadow: 0 0 10px black; color: ${props => { switch(props.type) { case 'PERFECT': return '#00ff00'; case 'GOOD': return '#ccff00'; case 'EARLY': return '#ffff00'; case 'LATE': return '#ff9900'; case 'MISS': return '#ff0000'; default: return 'white'; } }}; opacity: ${props => props.type ? 1 : 0}; transform: ${props => props.type ? 'scale(1.2)' : 'scale(1)'}; transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: none; z-index: 100; `;
+
+// UPDATE: FeedbackText CSS for Mobile
+const FeedbackText = styled.div<{ type: string | null }>`
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translate(-50%, -50%) ${props => props.type ? 'scale(1.2)' : 'scale(1)'};
+  font-size: 4rem;
+  font-weight: 900;
+  text-shadow: 0 0 10px black;
+  color: ${props => {
+      switch(props.type) {
+          case 'PERFECT': return '#00ff00';
+          case 'GOOD': return '#ccff00';
+          case 'EARLY': return '#ffff00';
+          case 'LATE': return '#ff9900';
+          case 'MISS': return '#ff0000';
+          default: return 'white';
+      }
+  }};
+  opacity: ${props => props.type ? 1 : 0};
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  pointer-events: none;
+  z-index: 100;
+`;
 
 interface GameProps {
     song: Song;
@@ -56,7 +80,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
   const isPlaying = gameState === 'PLAYING';
 
   // Core Game Loop
-  const { songTime } = useGameLoop(isPlaying, speedMultiplier);
+  const { songTime, setSongTime } = useGameLoop(isPlaying, speedMultiplier);
 
   // Audio Player
   useAudioPlayer(song, isPlaying, songTime, speedMultiplier, metronomeEnabled);
@@ -193,6 +217,22 @@ export function Game({ song, initialMode, onExit }: GameProps) {
     setTeacherState({ message: null, mood: 'neutral' });
   };
 
+  const restartGame = () => {
+      setGameState('IDLE'); // Briefly stop
+      setNoteStatuses(new Map());
+      setScore(0);
+      setCombo(0);
+      setStats({ hits: 0, misses: 0, early: 0, late: 0, perfect: 0, maxCombo: 0, missedNotesMap: new Map() });
+      setTeacherState({ message: null, mood: 'neutral' });
+      recentHistoryRef.current = [];
+      setFeedback(null);
+      setSongTime(0);
+      setTimeout(() => {
+          setGameState('PLAYING');
+          setIsListening(true);
+      }, 50);
+  };
+
   return (
     <Container>
       <TopBar>
@@ -245,7 +285,12 @@ export function Game({ song, initialMode, onExit }: GameProps) {
                     {!isListenOnlyMode && (<div style={{background: 'rgba(0,0,0,0.5)', padding: '10px', borderRadius: '10px', fontSize: '0.9rem'}}>Tip: Use headphones for best results</div>)}
                 </div>
             )}
-            {isPlaying && (<div style={{position: 'absolute', top: 20, right: 20, zIndex: 20}}><IconButton onClick={stopGame} style={{background: 'rgba(255,0,0,0.3)'}}>Stop</IconButton></div>)}
+            {isPlaying && (
+                <div style={{position: 'absolute', top: 20, right: 20, zIndex: 20, display: 'flex', gap: '10px'}}>
+                     <IconButton onClick={restartGame} style={{background: 'rgba(255,255,255,0.2)'}}>Restart</IconButton>
+                     <IconButton onClick={stopGame} style={{background: 'rgba(255,0,0,0.3)'}}>Stop</IconButton>
+                </div>
+            )}
             {gameState === 'FINISHED' && (<SummaryScreen score={score} totalNotes={stats.hits + stats.misses} hits={stats.hits} misses={stats.misses} early={stats.early} late={stats.late} perfect={stats.perfect} missedNotesMap={stats.missedNotesMap} onRestart={stopGame} />)}
         </div>
         <div style={{height: '60px', width: '100%', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
