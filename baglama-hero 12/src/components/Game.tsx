@@ -204,7 +204,7 @@ export function Game({ song, initialMode, onExit }: GameProps) {
 
   // FIXED: Pass speed=1.0 to useGameLoop so currentTime is always Real Time (accumulated delta).
   // We handle speed by scaling the timestamps of the notes, not the clock.
-  const currentTime = useGameLoop(isPlaying, 1.0);
+  const { songTime: currentTime } = useGameLoop(isPlaying, 1.0);
 
   // Audio Player (Synthesizer)
   // FIXED: Pass speedMultiplier so AudioPlayer can scale triggers and durations.
