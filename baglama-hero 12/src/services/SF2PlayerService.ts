@@ -1,9 +1,9 @@
-// import { type SoundFont2 } from 'soundfont2';
+import { WorkletSynthesizer } from 'spessasynth_lib';
 
 export default class SF2PlayerService {
   private static instance: SF2PlayerService;
   private audioContext: AudioContext | null = null;
-  private workletNode: AudioWorkletNode | null = null;
+  private synth: WorkletSynthesizer | null = null;
   private isInitialized = false;
 
   private constructor() {}
@@ -20,47 +20,34 @@ export default class SF2PlayerService {
     this.audioContext = audioContext;
 
     try {
-      console.log("Initializing SF2 Player...");
+      console.log("Loading SF2 Engine (Spessasynth)...");
 
-      // 1. Define the Worklet Processor Inline (To avoid 404 errors on external files)
-      // This simple processor handles the audio rendering buffer
-      const workletCode = `
-        class SF2Processor extends AudioWorkletProcessor {
-          constructor() {
-            super();
-            this.port.onmessage = (e) => {
-               // Future: Handle note on/off messages here
-            };
-          }
-          process(inputs, outputs, parameters) {
-            // Passthrough for now to keep the node alive
-            return true;
-          }
-        }
-        registerProcessor('sf2-processor', SF2Processor);
-      `;
+      // 0. Add Audio Worklet Module
+      // Ensure spessasynth_processor.min.js is available in public/ or dist/
+      // We assume it's copied to public/spessasynth_processor.min.js
+      await audioContext.audioWorklet.addModule('/spessasynth_processor.min.js');
 
-      const blob = new Blob([workletCode], { type: 'application/javascript' });
-      const url = URL.createObjectURL(blob);
+      // 1. Fetch the SF2 file
+      const response = await fetch('/soundfonts/baglama.sf2');
+      if (!response.ok) throw new Error(`SF2 Load Error: ${response.statusText}`);
+      const arrayBuffer = await response.arrayBuffer();
 
-      // 2. Load the Module properly
-      await audioContext.audioWorklet.addModule(url);
+      // 2. Initialize the Synthesizer
+      this.synth = new WorkletSynthesizer(audioContext.destination.context as AudioContext);
 
-      // 3. Create the Node
-      this.workletNode = new AudioWorkletNode(audioContext, 'sf2-processor');
-      this.workletNode.connect(audioContext.destination);
+      // 3. Load the SoundFont data
+      // API v4 uses soundBankManager.addSoundBank(buffer, id)
+      await this.synth.soundBankManager.addSoundBank(arrayBuffer, "baglama");
 
-      // 4. Fallback Audio for Note Playback (Sampled Sound approximation)
-      // Since parsing a binary SF2 in pure JS without a heavy library is complex,
-      // We will use a high-quality "Karplus-Strong" string synthesis here which sounds MUCH better than a beep.
-      // This ensures 100% stability while we wait for a heavy SF2 parser.
+      await this.synth.isReady;
 
       this.isInitialized = true;
-      console.log("Audio Engine Ready.");
+      console.log("SF2 Engine Ready & Loaded.");
       return true;
 
     } catch (error) {
-      console.error("Audio Engine Init Failed:", error);
+      console.error("SF2 Init Failed, falling back to simple synth:", error);
+      // Fallback is handled by playNote check
       return false;
     }
   }
@@ -69,39 +56,59 @@ export default class SF2PlayerService {
     return this.isInitialized;
   }
 
-  playNote(midi: number, _velocity: number, duration: number, startTime: number) {
+  playNote(midi: number, velocity: number, duration: number, startTime: number) {
     if (!this.audioContext) return;
-    const t = startTime || this.audioContext.currentTime;
 
-    // HIGH QUALITY STRING SYNTHESIS (Better than SF2 fallback)
-    // Uses Sawtooth + LowPass Filter + Fast Decay to mimic a Baglama pluck
-    const osc = this.audioContext.createOscillator();
-    const gainNode = this.audioContext.createGain();
-    const filter = this.audioContext.createBiquadFilter();
+    if (this.isInitialized && this.synth) {
+      // Spessasynth handles noteOn/Off directly
 
-    osc.type = 'sawtooth';
-    // Calculate frequency
-    const freq = 440 * Math.pow(2, (midi - 69) / 12);
+      // Calculate delay until startTime
+      const now = this.audioContext.currentTime;
+      const delay = Math.max(0, startTime - now);
 
-    // Add slight detune for realism
-    osc.frequency.setValueAtTime(freq, t);
+      setTimeout(() => {
+          if (this.synth) {
+              this.synth.noteOn(0, midi, velocity);
 
-    // Filter - Start bright, close fast (Pluck effect)
-    filter.type = 'lowpass';
-    filter.Q.value = 1; // Resonance
-    filter.frequency.setValueAtTime(freq * 4, t);
-    filter.frequency.exponentialRampToValueAtTime(freq, t + 0.15);
+              // Schedule Note Off
+              setTimeout(() => {
+                  if (this.synth) {
+                      this.synth.noteOff(0, midi);
+                  }
+              }, duration * 1000);
+          }
+      }, delay * 1000);
 
-    // Envelope
-    gainNode.gain.setValueAtTime(0, t);
-    gainNode.gain.linearRampToValueAtTime(0.5, t + 0.005); // Instant attack
-    gainNode.gain.exponentialRampToValueAtTime(0.01, t + duration); // Natural decay
+    } else {
+      // FALLBACK (The Sawtooth Synth we made earlier)
+      this.playFallbackSynth(midi, duration, startTime);
+    }
+  }
 
-    osc.connect(filter);
-    filter.connect(gainNode);
-    gainNode.connect(this.audioContext.destination);
+  private playFallbackSynth(midi: number, duration: number, startTime: number) {
+      if (!this.audioContext) return;
+      const t = startTime || this.audioContext.currentTime;
+      const osc = this.audioContext.createOscillator();
+      const gainNode = this.audioContext.createGain();
+      const filter = this.audioContext.createBiquadFilter();
 
-    osc.start(t);
-    osc.stop(t + duration + 0.2);
+      osc.type = 'sawtooth';
+      const freq = 440 * Math.pow(2, (midi - 69) / 12);
+      osc.frequency.setValueAtTime(freq, t);
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(freq * 4, t);
+      filter.frequency.exponentialRampToValueAtTime(freq, t + 0.15);
+
+      gainNode.gain.setValueAtTime(0, t);
+      gainNode.gain.linearRampToValueAtTime(0.4, t + 0.005);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, t + duration);
+
+      osc.connect(filter);
+      filter.connect(gainNode);
+      gainNode.connect(this.audioContext.destination);
+
+      osc.start(t);
+      osc.stop(t + duration + 0.2);
   }
 }
