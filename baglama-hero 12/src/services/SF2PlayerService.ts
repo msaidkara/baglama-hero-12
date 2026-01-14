@@ -1,9 +1,6 @@
-import { WorkletSynthesizer } from 'spessasynth_lib';
-
 export default class SF2PlayerService {
   private static instance: SF2PlayerService;
   private audioContext: AudioContext | null = null;
-  private synth: WorkletSynthesizer | null = null;
   private isInitialized = false;
 
   private constructor() {}
@@ -16,31 +13,15 @@ export default class SF2PlayerService {
   }
 
   async initialize(audioContext: AudioContext): Promise<boolean> {
-    if (this.isInitialized) return true;
     this.audioContext = audioContext;
-
-    try {
-      console.log("Loading SF2 Engine...");
-
-      // Ensure spessasynth_processor.min.js is available
-      await audioContext.audioWorklet.addModule('/spessasynth_processor.min.js');
-
-      const response = await fetch('/soundfonts/baglama.sf2');
-      if (!response.ok) throw new Error(`SF2 Load Error: ${response.statusText}`);
-      const arrayBuffer = await response.arrayBuffer();
-
-      this.synth = new WorkletSynthesizer(audioContext.destination.context as AudioContext);
-      await this.synth.soundBankManager.addSoundBank(arrayBuffer, "baglama");
-      await this.synth.isReady;
-
-      this.isInitialized = true;
-      console.log("✅ SF2 Loaded & Ready.");
-      return true;
-
-    } catch (error) {
-      console.error("❌ SF2 Init Failed:", error);
-      return false;
+    this.isInitialized = true;
+    
+    if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
     }
+    
+    console.log("✅ Ses Motoru: Warm E-Piano Modu");
+    return true;
   }
 
   isAvailable(): boolean {
@@ -50,47 +31,36 @@ export default class SF2PlayerService {
   playNote(midi: number, velocity: number, duration: number, startTime: number) {
     if (!this.audioContext) return;
 
-    // Use SF2 if available, otherwise Fallback
-    if (this.isInitialized && this.synth) {
-      const now = this.audioContext.currentTime;
-      const delay = Math.max(0, startTime - now);
+    const t = startTime || this.audioContext.currentTime;
 
-      // SHOTGUN STRATEGY: Fire 4 different octaves to find the sample
-      setTimeout(() => {
-          // Log to console to verify it's trying to play
-          console.log(`🔫 Firing Multi-Octave Note: ${midi}`);
+    // --- 1. OKTAV AYARI (Tizliği Alıyoruz) ---
+    // midi - 12 yaparak sesi 1 oktav kalınlaştırıyoruz.
+    const freq = 440 * Math.pow(2, (midi - 12 - 69) / 12);
 
-          const layers = [0, -12, -24, 12]; // Original, Low, Very Low, High
+    // --- 2. SES ŞEKLİ (Boğukluğu Alıyoruz) ---
+    const osc = this.audioContext.createOscillator();
+    osc.type = 'triangle'; 
+    osc.frequency.value = freq;
 
-          layers.forEach(offset => {
-             const targetNote = midi + offset;
-             if (targetNote > 0 && targetNote < 127) {
-                 this.synth?.noteOn(0, targetNote, velocity);
-                 // Note Off
-                 setTimeout(() => {
-                     this.synth?.noteOff(0, targetNote);
-                 }, duration * 1000);
-             }
-          });
-      }, delay * 1000);
+    // --- 3. FİLTRE (Tırnak Sürtmesini Engelliyoruz) ---
+    const filter = this.audioContext.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1500; 
 
-    } else {
-      this.playFallbackSynth(midi, duration, startTime);
-    }
-  }
+    // --- 4. SES ZARFI (Vuruş Hissi) ---
+    const gain = this.audioContext.createGain();
+    const volume = Math.min(velocity / 127, 1.0) * 0.4; 
 
-  private playFallbackSynth(midi: number, duration: number, startTime: number) {
-      if (!this.audioContext) return;
-      const t = startTime || this.audioContext.currentTime;
-      const osc = this.audioContext.createOscillator();
-      const gain = this.audioContext.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
-      gain.gain.setValueAtTime(0.1, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-      osc.connect(gain);
-      gain.connect(this.audioContext.destination);
-      osc.start(t);
-      osc.stop(t + duration + 0.1);
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(volume, t + 0.02); 
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration + 0.5); 
+
+    // --- BAĞLANTILAR ---
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.audioContext.destination);
+
+    osc.start(t);
+    osc.stop(t + duration + 0.6);
   }
 }
