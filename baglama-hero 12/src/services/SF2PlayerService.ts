@@ -20,34 +20,25 @@ export default class SF2PlayerService {
     this.audioContext = audioContext;
 
     try {
-      console.log("Loading SF2 Engine (Spessasynth)...");
+      console.log("Loading SF2 Engine...");
 
-      // 0. Add Audio Worklet Module
-      // Ensure spessasynth_processor.min.js is available in public/ or dist/
-      // We assume it's copied to public/spessasynth_processor.min.js
+      // Ensure spessasynth_processor.min.js is available
       await audioContext.audioWorklet.addModule('/spessasynth_processor.min.js');
 
-      // 1. Fetch the SF2 file
       const response = await fetch('/soundfonts/baglama.sf2');
       if (!response.ok) throw new Error(`SF2 Load Error: ${response.statusText}`);
       const arrayBuffer = await response.arrayBuffer();
 
-      // 2. Initialize the Synthesizer
       this.synth = new WorkletSynthesizer(audioContext.destination.context as AudioContext);
-
-      // 3. Load the SoundFont data
-      // API v4 uses soundBankManager.addSoundBank(buffer, id)
       await this.synth.soundBankManager.addSoundBank(arrayBuffer, "baglama");
-
       await this.synth.isReady;
 
       this.isInitialized = true;
-      console.log("SF2 Engine Ready & Loaded.");
+      console.log("✅ SF2 Loaded & Ready.");
       return true;
 
     } catch (error) {
-      console.error("SF2 Init Failed, falling back to simple synth:", error);
-      // Fallback is handled by playNote check
+      console.error("❌ SF2 Init Failed:", error);
       return false;
     }
   }
@@ -59,28 +50,31 @@ export default class SF2PlayerService {
   playNote(midi: number, velocity: number, duration: number, startTime: number) {
     if (!this.audioContext) return;
 
+    // Use SF2 if available, otherwise Fallback
     if (this.isInitialized && this.synth) {
-      // Spessasynth handles noteOn/Off directly
-
-      // Calculate delay until startTime
       const now = this.audioContext.currentTime;
       const delay = Math.max(0, startTime - now);
 
+      // SHOTGUN STRATEGY: Fire 4 different octaves to find the sample
       setTimeout(() => {
-          if (this.synth) {
-              this.synth.noteOn(0, midi, velocity);
+          // Log to console to verify it's trying to play
+          console.log(`🔫 Firing Multi-Octave Note: ${midi}`);
 
-              // Schedule Note Off
-              setTimeout(() => {
-                  if (this.synth) {
-                      this.synth.noteOff(0, midi);
-                  }
-              }, duration * 1000);
-          }
+          const layers = [0, -12, -24, 12]; // Original, Low, Very Low, High
+
+          layers.forEach(offset => {
+             const targetNote = midi + offset;
+             if (targetNote > 0 && targetNote < 127) {
+                 this.synth?.noteOn(0, targetNote, velocity);
+                 // Note Off
+                 setTimeout(() => {
+                     this.synth?.noteOff(0, targetNote);
+                 }, duration * 1000);
+             }
+          });
       }, delay * 1000);
 
     } else {
-      // FALLBACK (The Sawtooth Synth we made earlier)
       this.playFallbackSynth(midi, duration, startTime);
     }
   }
@@ -89,26 +83,14 @@ export default class SF2PlayerService {
       if (!this.audioContext) return;
       const t = startTime || this.audioContext.currentTime;
       const osc = this.audioContext.createOscillator();
-      const gainNode = this.audioContext.createGain();
-      const filter = this.audioContext.createBiquadFilter();
-
+      const gain = this.audioContext.createGain();
       osc.type = 'sawtooth';
-      const freq = 440 * Math.pow(2, (midi - 69) / 12);
-      osc.frequency.setValueAtTime(freq, t);
-
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(freq * 4, t);
-      filter.frequency.exponentialRampToValueAtTime(freq, t + 0.15);
-
-      gainNode.gain.setValueAtTime(0, t);
-      gainNode.gain.linearRampToValueAtTime(0.4, t + 0.005);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, t + duration);
-
-      osc.connect(filter);
-      filter.connect(gainNode);
-      gainNode.connect(this.audioContext.destination);
-
+      osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+      gain.gain.setValueAtTime(0.1, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+      osc.connect(gain);
+      gain.connect(this.audioContext.destination);
       osc.start(t);
-      osc.stop(t + duration + 0.2);
+      osc.stop(t + duration + 0.1);
   }
 }
